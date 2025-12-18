@@ -17,18 +17,18 @@ It provides:
 
 ## Hardware requirements
 
-* **ESP32‑C3**
+* **ESP32-C3**
 * **Pulse anemometer**
-
-  * Connected to **GPIO 0**
+  * Connected to **GPIO 1** (`PULSE_PIN` in `weather_station.ino`)
   * 20 pulses per second = **1.75 m/s**
-* **BME280** (I²C)
-
+* **BME280** (I2C)
   * Default address `0x76` (fallback `0x77`)
+  * Uses the board's default SDA/SCL pins (`Wire.begin()`)
 * **Micro SD card module** (SPI)
+  * CS -> **GPIO 20** (`SD_CS_PIN`), with your board's SPI pins for SCK/MISO/MOSI
 * Pull-up on anemometer signal recommended
 
-⚠️ **Note:** GPIO0 is a boot-strap pin on ESP32‑C3. Ensure the anemometer does **not pull it low during boot**.
+**Note:** If you change the pulse input to GPIO0, remember it is a boot-strap pin on ESP32-C3 and must not be held low during boot.
 
 ---
 
@@ -308,3 +308,4 @@ Common additions:
 ## License
 
 Use freely for personal, educational, or commercial projects. No warranty provided.
+
