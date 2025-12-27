@@ -59,7 +59,7 @@ static constexpr uint32_t NOW_SAMPLE_MS = 250;
 static constexpr uint32_t PPS_WINDOW_MS = 1000;
 
 // Buckets for UI chart (RAM only)
-static constexpr int BUCKET_SECONDS = 120;             // change this for different bucket durations
+static constexpr int BUCKET_SECONDS = 60;             // change this for different bucket durations
 static constexpr int BUCKETS_24H  = 24 * 60 * 60 / BUCKET_SECONDS;
 static constexpr int DAYS_HISTORY = 30;               // RAM daily summaries shown in UI
 static_assert((86400 % BUCKET_SECONDS) == 0, "BUCKET_SECONDS must divide evenly into 24h");
@@ -83,6 +83,7 @@ static const char* TZ_AU_SYDNEY = "AEST-10AEDT-11,M10.1.0/02:00:00,M4.1.0/03:00:
 
 // Web UI
 static constexpr int FILES_PER_PAGE = 30;  // Number of daily files to show per page in web UI
+static constexpr int MAX_PLOT_POINTS = 500;  // Maximum number of points to display on plots
 
 // ------------------- DATA -------------------
 
@@ -1109,6 +1110,7 @@ void handleDownloadZip() {
 void handleRoot() {
   String html = String(ROOT_HTML);
   html.replace("{{FILES_PER_PAGE}}", String(FILES_PER_PAGE));
+  html.replace("{{MAX_PLOT_POINTS}}", String(MAX_PLOT_POINTS));
   server.send(200, "text/html", html);
 }
 
@@ -1243,9 +1245,12 @@ void handleApiBuckets() {
     if (!timeIsValid(b.startEpoch)) continue;
     if (b.startEpoch < todayMidnight) continue; // Skip buckets before midnight
 
-    if (!first) out += ",";
-    first = false;
-    out += buildBucketJson(b);
+    String bucketJson = buildBucketJson(b);
+    if (bucketJson.length() > 0) {
+      if (!first) out += ",";
+      first = false;
+      out += bucketJson;
+    }
   }
 
   // Always append the current in-progress bucket

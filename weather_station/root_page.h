@@ -7,7 +7,7 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Weather Station</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='40' r='18' fill='%23FFB000'/><circle cx='50' cy='40' r='12' fill='%23FFC933'/><path d='M50 10v8M50 62v8M78 40h8M14 40h8M71 19l6-6M23 61l6-6M71 61l6 6M23 19l6 6' stroke='%23FFB000' stroke-width='3' stroke-linecap='round'/><ellipse cx='30' cy='70' rx='18' ry='12' fill='%23E0E0E0'/><ellipse cx='50' cy='75' rx='22' ry='14' fill='%23F0F0F0'/><ellipse cx='70' cy='70' rx='16' ry='11' fill='%23E8E8E8'/></svg>"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='40' r='18' fill='%23FFB000'/><circle cx='50' cy='40' r='12' fill='%23FFC933'/><path d='M50 10v8M50 62v8M78 40h8M14 40h8M71 19l6-6M23 61l6-6M71 61l6 6M23 19l6 6' stroke='%23FFB000' stroke-width='3' stroke-linecap='round'/><ellipse cx='30' cy='64' rx='16' ry='10' fill='%23E0E0E0'/><ellipse cx='50' cy='60' rx='22' ry='14' fill='%23F0F0F0'/><ellipse cx='70' cy='64' rx='16' ry='10' fill='%23E8E8E8'/></svg>"/>
   <style>
     body { font-family: system-ui, sans-serif; margin: 16px; }
     .row { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -108,11 +108,16 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <button class="small" onclick="resetZoom('wind')" id="reset_wind" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
           </div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('wind', event)" onmouseleave="plotMouseLeave('wind')" onmousedown="plotMouseDown('wind', event)" onmouseup="plotMouseUp('wind', event)" ondblclick="resetZoom('wind')" style="cursor:crosshair;">
+            <defs>
+              <clipPath id="plotClip_wind">
+                <rect x="60" y="8" width="530" height="106"/>
+              </clipPath>
+            </defs>
             <g class="yaxis" id="axis_wind"></g>
             <g class="xaxis" id="axis_x_wind"></g>
             <line id="hover_line_wind" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-            <polyline id="line_wind" fill="none" stroke="black" stroke-width="2" points=""></polyline>
-            <polyline id="line_wind_max" fill="none" stroke="#f0ad4e" stroke-width="2" points=""></polyline>
+            <polyline id="line_wind" fill="none" stroke="black" stroke-width="2" points="" clip-path="url(#plotClip_wind)"></polyline>
+            <polyline id="line_wind_max" fill="none" stroke="#f0ad4e" stroke-width="2" points="" clip-path="url(#plotClip_wind)"></polyline>
             <circle id="hover_dot_wind_avg" cx="0" cy="0" r="4" fill="black" stroke="#fff" stroke-width="1" opacity="0"></circle>
             <circle id="hover_dot_wind_max" cx="0" cy="0" r="4" fill="#f0ad4e" stroke="#fff" stroke-width="1" opacity="0"></circle>
             <rect id="select_rect_wind" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
@@ -124,11 +129,16 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <button class="small" onclick="resetZoom('temp')" id="reset_temp" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
           </div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('temp', event)" onmouseleave="plotMouseLeave('temp')" onmousedown="plotMouseDown('temp', event)" onmouseup="plotMouseUp('temp', event)" ondblclick="resetZoom('temp')" style="cursor:crosshair;">
+            <defs>
+              <clipPath id="plotClip_temp">
+                <rect x="60" y="8" width="530" height="106"/>
+              </clipPath>
+            </defs>
             <g class="yaxis" id="axis_temp"></g>
             <g class="xaxis" id="axis_x_temp"></g>
             <line id="hover_line_temp" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
             <circle id="hover_dot_temp" cx="0" cy="0" r="4" fill="#d9534f" stroke="#000" stroke-width="1" opacity="0"></circle>
-            <polyline id="line_temp" fill="none" stroke="#d9534f" stroke-width="2" points=""></polyline>
+            <polyline id="line_temp" fill="none" stroke="#d9534f" stroke-width="2" points="" clip-path="url(#plotClip_temp)"></polyline>
             <rect id="select_rect_temp" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
@@ -138,11 +148,16 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <button class="small" onclick="resetZoom('hum')" id="reset_hum" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
           </div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('hum', event)" onmouseleave="plotMouseLeave('hum')" onmousedown="plotMouseDown('hum', event)" onmouseup="plotMouseUp('hum', event)" ondblclick="resetZoom('hum')" style="cursor:crosshair;">
+            <defs>
+              <clipPath id="plotClip_hum">
+                <rect x="60" y="8" width="530" height="106"/>
+              </clipPath>
+            </defs>
             <g class="yaxis" id="axis_hum"></g>
             <g class="xaxis" id="axis_x_hum"></g>
             <line id="hover_line_hum" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
             <circle id="hover_dot_hum" cx="0" cy="0" r="4" fill="#0275d8" stroke="#000" stroke-width="1" opacity="0"></circle>
-            <polyline id="line_hum" fill="none" stroke="#0275d8" stroke-width="2" points=""></polyline>
+            <polyline id="line_hum" fill="none" stroke="#0275d8" stroke-width="2" points="" clip-path="url(#plotClip_hum)"></polyline>
             <rect id="select_rect_hum" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
@@ -152,11 +167,16 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <button class="small" onclick="resetZoom('press')" id="reset_press" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
           </div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('press', event)" onmouseleave="plotMouseLeave('press')" onmousedown="plotMouseDown('press', event)" onmouseup="plotMouseUp('press', event)" ondblclick="resetZoom('press')" style="cursor:crosshair;">
+            <defs>
+              <clipPath id="plotClip_press">
+                <rect x="60" y="8" width="530" height="106"/>
+              </clipPath>
+            </defs>
             <g class="yaxis" id="axis_press"></g>
             <g class="xaxis" id="axis_x_press"></g>
             <line id="hover_line_press" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
             <circle id="hover_dot_press" cx="0" cy="0" r="4" fill="#5cb85c" stroke="#000" stroke-width="1" opacity="0"></circle>
-            <polyline id="line_press" fill="none" stroke="#5cb85c" stroke-width="2" points=""></polyline>
+            <polyline id="line_press" fill="none" stroke="#5cb85c" stroke-width="2" points="" clip-path="url(#plotClip_press)"></polyline>
             <rect id="select_rect_press" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
@@ -235,6 +255,7 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
 <script>
 // ------------------- CONFIG -------------------
 const FILES_PER_PAGE = {{FILES_PER_PAGE}};  // Number of daily files to show per page (configured in .ino)
+const MAX_PLOT_POINTS = {{MAX_PLOT_POINTS}};  // Maximum number of points to display on plots (configured in .ino)
 
 // ------------------- HELPERS -------------------
 async function fetchJSON(url, { timeoutMs = 6000 } = {}){
@@ -242,11 +263,13 @@ async function fetchJSON(url, { timeoutMs = 6000 } = {}){
   const to = setTimeout(() => ctrl.abort(), timeoutMs);
   try{
     const r = await fetch(url, {cache:"no-store", signal: ctrl.signal});
-    const txt = await r.text();
+    let txt = await r.text();
     if (!r.ok) {
       throw new Error(`fetch failed ${url}: ${r.status} body=${txt.slice(0,200)}`);
     }
     try{
+      // Clean up malformed JSON: remove multiple consecutive commas in arrays
+      txt = txt.replace(/,(\s*,)+/g, ',').replace(/,(\s*)\]/g, '$1]').replace(/\[(\s*),/g, '[$1');
       return JSON.parse(txt);
     }catch(e){
       throw new Error(`parse failed ${url}: ${e.message} body_snip=${txt.slice(0,200)}...`);
@@ -271,7 +294,8 @@ const dragState = {
   active: false,
   plotKey: null,
   startX: 0,
-  currentX: 0
+  currentX: 0,
+  lastClickTime: 0
 };
 
 const tooltipEl = (() => {
@@ -356,6 +380,17 @@ function computeTimeDomain(values){
   return {min, max};
 }
 
+function downsampleData(values, maxPoints = 1000){
+  if (!values || values.length <= maxPoints) return values;
+  const step = values.length / maxPoints;
+  const result = [];
+  for (let i = 0; i < maxPoints; i++){
+    const index = Math.floor(i * step);
+    result.push(values[index]);
+  }
+  return result;
+}
+
 function filterSeries(values, predicate){
   if (!values || !values.length) return [];
   return values.filter(v => {
@@ -423,10 +458,16 @@ function hoverPlot(key, evt){
     const normX = (best.e - xDomain.min) / (xDomain.max - xDomain.min);
     const clamped = Math.max(0, Math.min(1, normX));
     xPx = dims.padLeft + clamped * xRange;
-    const domain = state.label === "Wind" ? computeDomain(state.series, ["avgWind","maxWind"]) :
-                   state.label === "Temp" ? computeDomain(state.series, ["avgTempC"]) :
-                   state.label === "Humidity" ? computeDomain(state.series, ["avgHumRH"]) :
-                   computeDomain(state.series, ["avgPressHpa"]);
+    // Filter to visible data for y-axis domain
+    const visibleSeries = state.zoomXDomain ? state.series.filter(v => {
+      const e = v ? Number(v.startEpoch) : NaN;
+      return isFinite(e) && e >= state.zoomXDomain.min && e <= state.zoomXDomain.max;
+    }) : state.series;
+    const domainData = visibleSeries.length > 0 ? visibleSeries : state.series;
+    const domain = state.label === "Wind" ? computeDomain(domainData, ["avgWind","maxWind"]) :
+                   state.label === "Temp" ? computeDomain(domainData, ["avgTempC"]) :
+                   state.label === "Humidity" ? computeDomain(domainData, ["avgHumRH"]) :
+                   computeDomain(domainData, ["avgPressHpa"]);
     const spanY = domain.max - domain.min;
     if (spanY > 0 && isFinite(spanY)) {
       const yRange = dims.height - dims.padTop - dims.padBottom;
@@ -457,13 +498,23 @@ function hideTooltip(){
 
 function plotMouseDown(key, evt){
   if (evt.button !== 0) return; // Only left button
+
+  // Detect double-click (clicks within 300ms)
+  const now = Date.now();
+  const timeSinceLastClick = now - dragState.lastClickTime;
+  dragState.lastClickTime = now;
+
+  // If this is a double-click, skip drag initialization
+  if (timeSinceLastClick < 300) {
+    return;
+  }
+
   const rect = evt.currentTarget.getBoundingClientRect();
   const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
   dragState.active = true;
   dragState.plotKey = key;
   dragState.startX = relX;
   dragState.currentX = relX;
-  evt.preventDefault();
 }
 
 function plotMouseMove(key, evt){
@@ -475,6 +526,7 @@ function plotMouseMove(key, evt){
     dragState.currentX = relX;
     updateSelectionRect(key);
     hideTooltip();
+    evt.preventDefault(); // Prevent text selection while dragging
   } else {
     // Show hover tooltip
     hoverPlot(key, evt);
@@ -673,19 +725,22 @@ function renderPolyline(values, field, elemId, domain, dims = chartDims, color, 
   const el = document.getElementById(elemId);
   if (!el) return;
 
+  // Downsample to max points for performance
+  const downsampled = downsampleData(values, MAX_PLOT_POINTS);
+
   const xRange = dims.width - dims.padLeft - dims.padRight;
   const yRange = dims.height - dims.padTop - dims.padBottom;
   const span = domain.max - domain.min;
   const xSpan = xDomain ? (xDomain.max - xDomain.min) : 0;
-  const n = values.length;
+  const n = downsampled.length;
 
   let pts = [];
   for (let i=0;i<n;i++){
-    const raw = values[i] ? values[i][field] : null;
+    const raw = downsampled[i] ? downsampled[i][field] : null;
     const val = (raw === null || raw === undefined || !isFinite(raw)) ? null : Number(raw);
     if (val === null) continue; // skip empty points entirely
     let x;
-    const epoch = values[i] ? Number(values[i].startEpoch) : NaN;
+    const epoch = downsampled[i] ? Number(downsampled[i].startEpoch) : NaN;
     if (xDomain && isFinite(epoch) && epoch > 0 && xSpan > 0){
       const xNorm = (epoch - xDomain.min) / xSpan;
       x = dims.padLeft + xNorm * xRange;
@@ -718,16 +773,23 @@ function renderSingleSeries(values, field, elemId, color, axisId, xAxisId){
     }
     return;
   }
-  const domain = computeDomain(filtered, [field]);
   const xDomain = computeTimeDomain(filtered);
   const key = elemId === "line_temp" ? "temp" : elemId === "line_hum" ? "hum" : "press";
 
   // Use zoom domain if available
   const displayDomain = (plotState[key] && plotState[key].zoomXDomain) ? plotState[key].zoomXDomain : xDomain;
 
+  // Filter data to visible range for y-axis scaling
+  const visibleData = displayDomain ? filtered.filter(v => {
+    const e = v ? Number(v.startEpoch) : NaN;
+    return isFinite(e) && e >= displayDomain.min && e <= displayDomain.max;
+  }) : filtered;
+
+  const domain = computeDomain(visibleData.length > 0 ? visibleData : filtered, [field]);
+
   renderAxis(axisId, domain);
   if (xAxisId) renderXAxis(xAxisId, displayDomain);
-  renderPolyline(filtered, field, elemId, domain, chartDims, color, displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : filtered, field, elemId, domain, chartDims, color, displayDomain);
   if (plotState[key]) {
     plotState[key].series = filtered;
     plotState[key].xDomain = xDomain;
@@ -758,7 +820,18 @@ function renderWind(values){
       maxWind: toKmh(v.maxWind)
     });
   });
-  const domain = computeDomain(valuesKm, ["avgWind", "maxWind"]);
+  const xDomain = computeTimeDomain(valuesKm);
+
+  // Use zoom domain if available
+  const displayDomain = plotState.wind.zoomXDomain ? plotState.wind.zoomXDomain : xDomain;
+
+  // Filter data to visible range for y-axis scaling
+  const visibleData = displayDomain ? valuesKm.filter(v => {
+    const e = v ? Number(v.startEpoch) : NaN;
+    return isFinite(e) && e >= displayDomain.min && e <= displayDomain.max;
+  }) : valuesKm;
+
+  const domain = computeDomain(visibleData.length > 0 ? visibleData : valuesKm, ["avgWind", "maxWind"]);
   const hasValid = Number.isFinite(domain.min) && Number.isFinite(domain.max);
   if (!hasValid){
     ["line_wind","line_wind_max"].forEach(id => {
@@ -771,15 +844,11 @@ function renderWind(values){
     plotState.wind.xDomain = null;
     return;
   }
-  const xDomain = computeTimeDomain(valuesKm);
-
-  // Use zoom domain if available
-  const displayDomain = plotState.wind.zoomXDomain ? plotState.wind.zoomXDomain : xDomain;
 
   renderAxis("axis_wind", domain);
   renderXAxis("axis_x_wind", displayDomain);
-  renderPolyline(valuesKm, "avgWind", "line_wind", domain, chartDims, "black", displayDomain);
-  renderPolyline(valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "black", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
   plotState.wind.series = valuesKm;
   plotState.wind.xDomain = xDomain;
 }
@@ -1044,7 +1113,9 @@ async function tick(){
     ]);
 
     if (bucketsRes.status === "fulfilled") {
-      const series = Array.isArray(bucketsRes.value.buckets) ? bucketsRes.value.buckets : [];
+      let series = Array.isArray(bucketsRes.value.buckets) ? bucketsRes.value.buckets : [];
+      // Filter out null/undefined entries that may result from malformed JSON
+      series = series.filter(b => b && typeof b === 'object' && b.startEpoch);
       const bucketSeconds = bucketsRes.value.bucket_seconds || "--";
       document.getElementById("bucket_sec").textContent = bucketSeconds;
       renderWind(series);
