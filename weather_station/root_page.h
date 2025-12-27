@@ -14,12 +14,15 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; min-width: 260px; }
     .big { font-size: 42px; font-weight: 700; }
     .muted { color: #666; }
-    svg { width: 100%; height: 140px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; }
+    svg { width: 100%; height: 140px; border-radius: 10px; background: #fafafa; }
     table { width: 100%; border-collapse: collapse; }
     td, th { border-bottom: 1px solid #eee; padding: 6px 4px; text-align: left; font-size: 14px; }
-    .table-scroll { overflow-x: auto; }
+    .table-scroll { overflow-x: auto; padding-right: 20px; }
+    .table-wrapper { position: relative; }
+    .table-wrapper::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 40px; background: linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,1)); pointer-events: none; z-index: 4; }
     .table-scroll table { min-width: 1000px; }
     .table-scroll th:first-child, .table-scroll td:first-child { position: sticky; left: 0; background: #fff; z-index: 2; }
+    .table-scroll th:first-child::after, .table-scroll td:first-child::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 2px; background: #000; }
     .table-scroll thead tr th:first-child { z-index: 3; }
     .table-scroll th:nth-child(2), .table-scroll th:nth-child(3),
     .table-scroll td:nth-child(2), .table-scroll td:nth-child(3) { background: #f8f8f8; }
@@ -41,16 +44,16 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
     .xaxis text { font-size: 10px; fill: #555; }
     .xaxis line { stroke: #ccc; }
     .tooltip { position: fixed; padding:6px 8px; border-radius:8px; background:rgba(0,0,0,0.8); color:#fff; font-size:12px; pointer-events:none; z-index:1000; }
-    .plots-grid { display:grid; gap:12px; overflow-x: auto; width: 100%; }
-    .plots-grid.cols-4 { grid-template-columns: repeat(1, minmax(400px, 1fr)); }
-    .plots-grid.cols-2 { grid-template-columns: repeat(1, minmax(400px, 1fr)); }
-    .plots-grid.cols-1 { grid-template-columns: repeat(1, minmax(400px, 1fr)); }
-    @media (min-width: 900px) {
-      .plots-grid.cols-4 { grid-template-columns: repeat(2, minmax(400px, 1fr)); }
-      .plots-grid.cols-2 { grid-template-columns: repeat(2, minmax(400px, 1fr)); }
+    .plots-grid { display:grid; gap:12px; width: 100%; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
+    .plots-grid.cols-4 { grid-template-columns: repeat(1, minmax(330px, 1fr)); }
+    .plots-grid.cols-2 { grid-template-columns: repeat(1, minmax(330px, 1fr)); }
+    .plots-grid.cols-1 { grid-template-columns: repeat(1, minmax(330px, 1fr)); }
+    @media (min-width: 825px) {
+      .plots-grid.cols-4 { grid-template-columns: repeat(2, minmax(330px, 1fr)); }
+      .plots-grid.cols-2 { grid-template-columns: repeat(2, minmax(330px, 1fr)); }
     }
-    @media (min-width: 1800px) {
-      .plots-grid.cols-4 { grid-template-columns: repeat(4, minmax(400px, 1fr)); }
+    @media (min-width: 1600px) {
+      .plots-grid.cols-4 { grid-template-columns: repeat(4, minmax(330px, 1fr)); }
     }
   </style>
 </head>
@@ -99,9 +102,12 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
   <div class="row" style="margin-top: 14px;">
     <div class="card" style="flex:1; min-width:320px;">
       <div id="plots_container" class="plots-grid cols-4">
-        <div class="card" style="min-width:400px;">
-          <div class="muted">Wind Speed (km/h)</div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('wind', event)" onmouseleave="hideTooltip()">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="muted">Wind Speed (km/h)</div>
+            <button class="small" onclick="resetZoom('wind')" id="reset_wind" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
+          </div>
+          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('wind', event)" onmouseleave="plotMouseLeave('wind')" onmousedown="plotMouseDown('wind', event)" onmouseup="plotMouseUp('wind', event)" ondblclick="resetZoom('wind')" style="cursor:crosshair;">
             <g class="yaxis" id="axis_wind"></g>
             <g class="xaxis" id="axis_x_wind"></g>
             <line id="hover_line_wind" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
@@ -109,36 +115,49 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <polyline id="line_wind_max" fill="none" stroke="#f0ad4e" stroke-width="2" points=""></polyline>
             <circle id="hover_dot_wind_avg" cx="0" cy="0" r="4" fill="black" stroke="#fff" stroke-width="1" opacity="0"></circle>
             <circle id="hover_dot_wind_max" cx="0" cy="0" r="4" fill="#f0ad4e" stroke="#fff" stroke-width="1" opacity="0"></circle>
+            <rect id="select_rect_wind" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
-        <div class="card" style="min-width:400px;">
-          <div class="muted">Temperature (&deg;C)</div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('temp', event)" onmouseleave="hideTooltip()">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="muted">Temperature (&deg;C)</div>
+            <button class="small" onclick="resetZoom('temp')" id="reset_temp" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
+          </div>
+          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('temp', event)" onmouseleave="plotMouseLeave('temp')" onmousedown="plotMouseDown('temp', event)" onmouseup="plotMouseUp('temp', event)" ondblclick="resetZoom('temp')" style="cursor:crosshair;">
             <g class="yaxis" id="axis_temp"></g>
             <g class="xaxis" id="axis_x_temp"></g>
             <line id="hover_line_temp" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
             <circle id="hover_dot_temp" cx="0" cy="0" r="4" fill="#d9534f" stroke="#000" stroke-width="1" opacity="0"></circle>
             <polyline id="line_temp" fill="none" stroke="#d9534f" stroke-width="2" points=""></polyline>
+            <rect id="select_rect_temp" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
-        <div class="card" style="min-width:400px;">
-          <div class="muted">Humidity (%)</div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('hum', event)" onmouseleave="hideTooltip()">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="muted">Humidity (%)</div>
+            <button class="small" onclick="resetZoom('hum')" id="reset_hum" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
+          </div>
+          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('hum', event)" onmouseleave="plotMouseLeave('hum')" onmousedown="plotMouseDown('hum', event)" onmouseup="plotMouseUp('hum', event)" ondblclick="resetZoom('hum')" style="cursor:crosshair;">
             <g class="yaxis" id="axis_hum"></g>
             <g class="xaxis" id="axis_x_hum"></g>
             <line id="hover_line_hum" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
             <circle id="hover_dot_hum" cx="0" cy="0" r="4" fill="#0275d8" stroke="#000" stroke-width="1" opacity="0"></circle>
             <polyline id="line_hum" fill="none" stroke="#0275d8" stroke-width="2" points=""></polyline>
+            <rect id="select_rect_hum" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
-        <div class="card" style="min-width:400px;">
-          <div class="muted">Pressure (hPa)</div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('press', event)" onmouseleave="hideTooltip()">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="muted">Pressure (hPa)</div>
+            <button class="small" onclick="resetZoom('press')" id="reset_press" style="display:none; padding:2px 6px; font-size:11px;">Reset Zoom</button>
+          </div>
+          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('press', event)" onmouseleave="plotMouseLeave('press')" onmousedown="plotMouseDown('press', event)" onmouseup="plotMouseUp('press', event)" ondblclick="resetZoom('press')" style="cursor:crosshair;">
             <g class="yaxis" id="axis_press"></g>
             <g class="xaxis" id="axis_x_press"></g>
             <line id="hover_line_press" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
             <circle id="hover_dot_press" cx="0" cy="0" r="4" fill="#5cb85c" stroke="#000" stroke-width="1" opacity="0"></circle>
             <polyline id="line_press" fill="none" stroke="#5cb85c" stroke-width="2" points=""></polyline>
+            <rect id="select_rect_press" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
           </svg>
         </div>
       </div>
@@ -148,8 +167,9 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
   <div class="row" style="margin-top: 14px;">
     <div class="card" style="flex:1; min-width:320px;">
       <div class="muted">Daily summaries</div>
-      <div class="table-scroll">
-        <table>
+      <div class="table-wrapper">
+        <div class="table-scroll">
+          <table>
           <thead>
             <tr>
               <th>Day</th>
@@ -167,7 +187,8 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             </tr>
           </thead>
           <tbody id="days"></tbody>
-        </table>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -240,10 +261,17 @@ async function fetchJSON(url, { timeoutMs = 6000 } = {}){
 
 const chartDims = { width: 600, height: 140, padLeft: 60, padRight: 10, padTop: 8, padBottom: 26 };
 const plotState = {
-  wind: { series: null, xDomain: null, label: "Wind", unit: "km/h" },
-  temp: { series: null, xDomain: null, label: "Temp", unit: "°C" },
-  hum:  { series: null, xDomain: null, label: "Humidity", unit: "%" },
-  press:{ series: null, xDomain: null, label: "Pressure", unit: "hPa" }
+  wind: { series: null, xDomain: null, originalXDomain: null, zoomXDomain: null, label: "Wind", unit: "km/h" },
+  temp: { series: null, xDomain: null, originalXDomain: null, zoomXDomain: null, label: "Temp", unit: "°C" },
+  hum:  { series: null, xDomain: null, originalXDomain: null, zoomXDomain: null, label: "Humidity", unit: "%" },
+  press:{ series: null, xDomain: null, originalXDomain: null, zoomXDomain: null, label: "Pressure", unit: "hPa" }
+};
+
+const dragState = {
+  active: false,
+  plotKey: null,
+  startX: 0,
+  currentX: 0
 };
 
 const tooltipEl = (() => {
@@ -347,7 +375,7 @@ function hoverPlot(key, evt){
   const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
   const dims = chartDims;
   const xRange = dims.width - dims.padLeft - dims.padRight;
-  const xDomain = state.xDomain;
+  const xDomain = state.zoomXDomain || state.xDomain;
   let targetEpoch = null;
   if (xDomain && xRange > 0){
     const norm = Math.max(0, Math.min(1, (relX - dims.padLeft) / xRange));
@@ -427,9 +455,173 @@ function hideTooltip(){
   clearHoverDots();
 }
 
+function plotMouseDown(key, evt){
+  if (evt.button !== 0) return; // Only left button
+  const rect = evt.currentTarget.getBoundingClientRect();
+  const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
+  dragState.active = true;
+  dragState.plotKey = key;
+  dragState.startX = relX;
+  dragState.currentX = relX;
+  evt.preventDefault();
+}
+
+function plotMouseMove(key, evt){
+  const rect = evt.currentTarget.getBoundingClientRect();
+  const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
+
+  if (dragState.active && dragState.plotKey === key) {
+    // Update drag selection
+    dragState.currentX = relX;
+    updateSelectionRect(key);
+    hideTooltip();
+  } else {
+    // Show hover tooltip
+    hoverPlot(key, evt);
+  }
+}
+
+function plotMouseLeave(key){
+  if (dragState.active && dragState.plotKey === key) {
+    dragState.active = false;
+    hideSelectionRect(key);
+  }
+  hideTooltip();
+}
+
+function plotMouseUp(key, evt){
+  if (!dragState.active || dragState.plotKey !== key) return;
+  dragState.active = false;
+
+  const dims = chartDims;
+  const xRange = dims.width - dims.padLeft - dims.padRight;
+  const startX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.startX));
+  const endX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.currentX));
+
+  const minX = Math.min(startX, endX);
+  const maxX = Math.max(startX, endX);
+  const dragWidth = maxX - minX;
+
+  // Only zoom if selection is wide enough (at least 20px)
+  if (dragWidth < 20) {
+    hideSelectionRect(key);
+    return;
+  }
+
+  const state = plotState[key];
+  if (!state || !state.xDomain) {
+    hideSelectionRect(key);
+    return;
+  }
+
+  // Store original domain if not already zoomed
+  if (!state.originalXDomain) {
+    state.originalXDomain = { ...state.xDomain };
+  }
+
+  // Calculate new zoom domain
+  const normStart = (minX - dims.padLeft) / xRange;
+  const normEnd = (maxX - dims.padLeft) / xRange;
+  const currentDomain = state.zoomXDomain || state.xDomain;
+  const span = currentDomain.max - currentDomain.min;
+
+  const newZoomDomain = {
+    min: currentDomain.min + normStart * span,
+    max: currentDomain.min + normEnd * span
+  };
+
+  // Apply zoom to ALL plots
+  ["wind", "temp", "hum", "press"].forEach(plotKey => {
+    const plotSt = plotState[plotKey];
+    if (plotSt) {
+      if (!plotSt.originalXDomain && plotSt.xDomain) {
+        plotSt.originalXDomain = { ...plotSt.xDomain };
+      }
+      plotSt.zoomXDomain = { ...newZoomDomain };
+    }
+  });
+
+  // Re-render all plots
+  hideSelectionRect(key);
+  ["wind", "temp", "hum", "press"].forEach(plotKey => {
+    reRenderPlot(plotKey);
+  });
+
+  // Show all reset buttons
+  ["wind", "temp", "hum", "press"].forEach(plotKey => {
+    const resetBtn = document.getElementById(`reset_${plotKey}`);
+    if (resetBtn) resetBtn.style.display = "block";
+  });
+}
+
+function resetZoom(key){
+  // Reset all plots together
+  ["wind", "temp", "hum", "press"].forEach(plotKey => {
+    const state = plotState[plotKey];
+    if (state) {
+      state.zoomXDomain = null;
+      state.originalXDomain = null;
+    }
+  });
+
+  // Re-render all plots
+  ["wind", "temp", "hum", "press"].forEach(plotKey => {
+    reRenderPlot(plotKey);
+  });
+
+  // Hide all reset buttons
+  ["wind", "temp", "hum", "press"].forEach(plotKey => {
+    const resetBtn = document.getElementById(`reset_${plotKey}`);
+    if (resetBtn) resetBtn.style.display = "none";
+  });
+}
+
+function updateSelectionRect(key){
+  const rect = document.getElementById(`select_rect_${key}`);
+  if (!rect) return;
+
+  const dims = chartDims;
+  const startX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.startX));
+  const endX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.currentX));
+  const minX = Math.min(startX, endX);
+  const maxX = Math.max(startX, endX);
+
+  rect.setAttribute("x", minX);
+  rect.setAttribute("y", dims.padTop);
+  rect.setAttribute("width", maxX - minX);
+  rect.setAttribute("height", dims.height - dims.padTop - dims.padBottom);
+  rect.setAttribute("opacity", "1");
+}
+
+function hideSelectionRect(key){
+  const rect = document.getElementById(`select_rect_${key}`);
+  if (rect) rect.setAttribute("opacity", "0");
+}
+
+function reRenderPlot(key){
+  const state = plotState[key];
+  if (!state || !state.series) return;
+
+  if (key === "wind") {
+    renderWind(state.series);
+  } else if (key === "temp") {
+    renderSingleSeries(state.series, "avgTempC", "line_temp", "#d9534f", "axis_temp", "axis_x_temp");
+  } else if (key === "hum") {
+    renderSingleSeries(state.series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");
+  } else if (key === "press") {
+    renderSingleSeries(state.series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
+  }
+}
+
 function renderAxis(axisId, domain, dims = chartDims){
   const axis = document.getElementById(axisId);
   if (!axis) return;
+
+  // Calculate scale factor to prevent text stretching
+  const svg = axis.closest('svg');
+  const scaleX = svg ? (svg.getBoundingClientRect().width / dims.width) : 1;
+  const textScale = scaleX > 0 ? (1 / scaleX) : 1;
+
   const span = domain.max - domain.min;
   const ticks = 4;
   const axisX = dims.padLeft - 12;
@@ -440,7 +632,7 @@ function renderAxis(axisId, domain, dims = chartDims){
     const value = domain.max - frac * span;
     const y = dims.padTop + frac * usableH;
     html += `<line x1="${axisX}" y1="${y.toFixed(1)}" x2="${(axisX+6)}" y2="${y.toFixed(1)}" stroke-width="1"/>`;
-    html += `<text x="${axisX - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end">${value.toFixed(1)}</text>`;
+    html += `<text x="${axisX - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" transform="scale(${textScale.toFixed(3)}, 1)" transform-origin="${axisX - 4} ${(y + 3).toFixed(1)}">${value.toFixed(1)}</text>`;
   }
   axis.innerHTML = html;
 }
@@ -452,10 +644,16 @@ function renderXAxis(axisId, xDomain, dims = chartDims){
     axis.innerHTML = "";
     return;
   }
+
+  // Calculate scale factor to prevent text stretching
+  const svg = axis.closest('svg');
+  const scaleX = svg ? (svg.getBoundingClientRect().width / dims.width) : 1;
+  const textScale = scaleX > 0 ? (1 / scaleX) : 1;
+
   const xRange = dims.width - dims.padLeft - dims.padRight;
   const baseY = dims.height - dims.padBottom + 4;
   const span = xDomain.max - xDomain.min;
-  const targetTicks = 12;
+  const targetTicks = 10;
   const tickSeconds = Math.max(1, Math.round(span / targetTicks));
   const firstTick = Math.ceil(xDomain.min / tickSeconds) * tickSeconds;
   let html = `<line x1="${dims.padLeft}" y1="${baseY}" x2="${dims.width - dims.padRight}" y2="${baseY}" stroke-width="1"/>`;
@@ -466,7 +664,7 @@ function renderXAxis(axisId, xDomain, dims = chartDims){
     const hh = d.getHours().toString().padStart(2, "0");
     const mm = d.getMinutes().toString().padStart(2, "0");
     html += `<line x1="${x.toFixed(1)}" y1="${baseY}" x2="${x.toFixed(1)}" y2="${(baseY+4)}" stroke-width="1"/>`;
-    html += `<text x="${x.toFixed(1)}" y="${(baseY+14)}" text-anchor="middle">${hh}:${mm}</text>`;
+    html += `<text x="${x.toFixed(1)}" y="${(baseY+14)}" text-anchor="middle" transform="scale(${textScale.toFixed(3)}, 1)" transform-origin="${x.toFixed(1)} ${(baseY+14)}">${hh}:${mm}</text>`;
   }
   axis.innerHTML = html;
 }
@@ -522,10 +720,14 @@ function renderSingleSeries(values, field, elemId, color, axisId, xAxisId){
   }
   const domain = computeDomain(filtered, [field]);
   const xDomain = computeTimeDomain(filtered);
-  renderAxis(axisId, domain);
-  if (xAxisId) renderXAxis(xAxisId, xDomain);
-  renderPolyline(filtered, field, elemId, domain, chartDims, color, xDomain);
   const key = elemId === "line_temp" ? "temp" : elemId === "line_hum" ? "hum" : "press";
+
+  // Use zoom domain if available
+  const displayDomain = (plotState[key] && plotState[key].zoomXDomain) ? plotState[key].zoomXDomain : xDomain;
+
+  renderAxis(axisId, domain);
+  if (xAxisId) renderXAxis(xAxisId, displayDomain);
+  renderPolyline(filtered, field, elemId, domain, chartDims, color, displayDomain);
   if (plotState[key]) {
     plotState[key].series = filtered;
     plotState[key].xDomain = xDomain;
@@ -570,10 +772,14 @@ function renderWind(values){
     return;
   }
   const xDomain = computeTimeDomain(valuesKm);
+
+  // Use zoom domain if available
+  const displayDomain = plotState.wind.zoomXDomain ? plotState.wind.zoomXDomain : xDomain;
+
   renderAxis("axis_wind", domain);
-  renderXAxis("axis_x_wind", xDomain);
-  renderPolyline(valuesKm, "avgWind", "line_wind", domain, chartDims, "black", xDomain);
-  renderPolyline(valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", xDomain);
+  renderXAxis("axis_x_wind", displayDomain);
+  renderPolyline(valuesKm, "avgWind", "line_wind", domain, chartDims, "black", displayDomain);
+  renderPolyline(valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
   plotState.wind.series = valuesKm;
   plotState.wind.xDomain = xDomain;
 }
