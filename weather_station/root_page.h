@@ -17,6 +17,14 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
     svg { width: 100%; height: 140px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; }
     table { width: 100%; border-collapse: collapse; }
     td, th { border-bottom: 1px solid #eee; padding: 6px 4px; text-align: left; font-size: 14px; }
+    .table-scroll { overflow-x: auto; }
+    .table-scroll table { min-width: 1000px; }
+    .table-scroll th:first-child, .table-scroll td:first-child { position: sticky; left: 0; background: #fff; z-index: 2; }
+    .table-scroll thead tr th:first-child { z-index: 3; }
+    .table-scroll th:nth-child(2), .table-scroll th:nth-child(3),
+    .table-scroll td:nth-child(2), .table-scroll td:nth-child(3) { background: #f8f8f8; }
+    .table-scroll th:nth-child(7), .table-scroll th:nth-child(8), .table-scroll th:nth-child(9),
+    .table-scroll td:nth-child(7), .table-scroll td:nth-child(8), .table-scroll td:nth-child(9) { background: #f8f8f8; }
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f2f2f2; margin-right:6px; margin-top:6px; }
     .small { font-size: 12px; }
     a { color: inherit; }
@@ -24,6 +32,7 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
     .filecol { min-width: 320px; flex:1; }
     .btnrow { display:flex; gap:8px; margin: 8px 0; flex-wrap: wrap; }
     button { padding: 8px 10px; border-radius: 10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
     .btnrow button.small { padding:4px 8px; font-size:12px; }
     code { background:#f6f6f6; padding:2px 6px; border-radius: 8px; }
     input { padding: 7px 10px; border-radius: 10px; border:1px solid #ddd; width: 80px; }
@@ -32,12 +41,17 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
     .xaxis text { font-size: 10px; fill: #555; }
     .xaxis line { stroke: #ccc; }
     .tooltip { position: fixed; padding:6px 8px; border-radius:8px; background:rgba(0,0,0,0.8); color:#fff; font-size:12px; pointer-events:none; z-index:1000; }
-    .plots-grid { display:grid; gap:12px; }
-    .plots-grid.cols-4 { grid-template-columns: repeat(4, minmax(220px, 1fr)); }
-    .plots-grid.cols-2 { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
-    .plots-grid.cols-1 { grid-template-columns: 1fr; }
-    @media (max-width: 1200px) { .plots-grid.cols-4 { grid-template-columns: repeat(2, minmax(260px, 1fr)); } }
-    @media (max-width: 720px) { .plots-grid.cols-4, .plots-grid.cols-2 { grid-template-columns: 1fr; } }
+    .plots-grid { display:grid; gap:12px; overflow-x: auto; width: 100%; }
+    .plots-grid.cols-4 { grid-template-columns: repeat(1, minmax(400px, 1fr)); }
+    .plots-grid.cols-2 { grid-template-columns: repeat(1, minmax(400px, 1fr)); }
+    .plots-grid.cols-1 { grid-template-columns: repeat(1, minmax(400px, 1fr)); }
+    @media (min-width: 900px) {
+      .plots-grid.cols-4 { grid-template-columns: repeat(2, minmax(400px, 1fr)); }
+      .plots-grid.cols-2 { grid-template-columns: repeat(2, minmax(400px, 1fr)); }
+    }
+    @media (min-width: 1800px) {
+      .plots-grid.cols-4 { grid-template-columns: repeat(4, minmax(400px, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -74,8 +88,10 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
       <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
         <span class="pill">Uptime: <span id="uptime">--</span></span>
         <span class="pill">PPS: <span id="pps">--</span></span>
+        <span class="pill">Bucket: <span id="bucket_sec">--</span>s</span>
         <span class="pill">BME280: <span id="bmeok">--</span></span>
         <span class="pill">SD: <span id="sdok">--</span></span>
+        <span class="pill">WiFi: <span id="wifi">--</span> dBm (<span id="wifi_quality">--</span>)</span>
       </div>
     </div>
   </div>
@@ -83,18 +99,19 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
   <div class="row" style="margin-top: 14px;">
     <div class="card" style="flex:1; min-width:320px;">
       <div id="plots_container" class="plots-grid cols-4">
-        <div class="card" style="min-width:260px;">
+        <div class="card" style="min-width:400px;">
           <div class="muted">Wind Speed (km/h)</div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('wind', event)" onmouseleave="hideTooltip()">
             <g class="yaxis" id="axis_wind"></g>
             <g class="xaxis" id="axis_x_wind"></g>
             <line id="hover_line_wind" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-            <circle id="hover_dot_wind" cx="0" cy="0" r="4" fill="#f0ad4e" stroke="#000" stroke-width="1" opacity="0"></circle>
             <polyline id="line_wind" fill="none" stroke="black" stroke-width="2" points=""></polyline>
             <polyline id="line_wind_max" fill="none" stroke="#f0ad4e" stroke-width="2" points=""></polyline>
+            <circle id="hover_dot_wind_avg" cx="0" cy="0" r="4" fill="black" stroke="#fff" stroke-width="1" opacity="0"></circle>
+            <circle id="hover_dot_wind_max" cx="0" cy="0" r="4" fill="#f0ad4e" stroke="#fff" stroke-width="1" opacity="0"></circle>
           </svg>
         </div>
-        <div class="card" style="min-width:260px;">
+        <div class="card" style="min-width:400px;">
           <div class="muted">Temperature (&deg;C)</div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('temp', event)" onmouseleave="hideTooltip()">
             <g class="yaxis" id="axis_temp"></g>
@@ -104,7 +121,7 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <polyline id="line_temp" fill="none" stroke="#d9534f" stroke-width="2" points=""></polyline>
           </svg>
         </div>
-        <div class="card" style="min-width:260px;">
+        <div class="card" style="min-width:400px;">
           <div class="muted">Humidity (%)</div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('hum', event)" onmouseleave="hideTooltip()">
             <g class="yaxis" id="axis_hum"></g>
@@ -114,7 +131,7 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
             <polyline id="line_hum" fill="none" stroke="#0275d8" stroke-width="2" points=""></polyline>
           </svg>
         </div>
-        <div class="card" style="min-width:260px;">
+        <div class="card" style="min-width:400px;">
           <div class="muted">Pressure (hPa)</div>
           <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="hoverPlot('press', event)" onmouseleave="hideTooltip()">
             <g class="yaxis" id="axis_press"></g>
@@ -131,16 +148,27 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
   <div class="row" style="margin-top: 14px;">
     <div class="card" style="flex:1; min-width:320px;">
       <div class="muted">Daily summaries</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Day</th><th>Avg wind (km/h)</th><th>Max wind (km/h)</th>
-            <th>Avg temp</th><th>Min temp</th><th>Max temp</th>
-            <th>Avg RH</th><th>Min RH</th><th>Max RH</th>
-          </tr>
-        </thead>
-        <tbody id="days"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Avg wind</th><th>Max wind</th>
+              <th>Avg temp</th><th>Min temp</th><th>Max temp</th>
+              <th>Avg RH</th><th>Min RH</th><th>Max RH</th>
+              <th>Avg press</th><th>Min press</th><th>Max press</th>
+            </tr>
+            <tr>
+              <th></th>
+              <th>(km/h)</th><th>(km/h)</th>
+              <th>(&deg;C)</th><th>(&deg;C)</th><th>(&deg;C)</th>
+              <th>(%)</th><th>(%)</th><th>(%)</th>
+              <th>(hPa)</th><th>(hPa)</th><th>(hPa)</th>
+            </tr>
+          </thead>
+          <tbody id="days"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -155,7 +183,15 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
 
       <div class="files">
         <div class="filecol">
-          <div class="muted">Daily files (/data)</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <div class="muted">Daily files (/data)</div>
+            <div id="files_data_nav" style="display:none; align-items:center; gap:8px;">
+              <button class="small" onclick="navigateFiles('data', -1)" id="files_data_prev" style="padding:4px 8px;">←</button>
+              <span class="muted small" id="files_data_info"></span>
+              <button class="small" onclick="navigateFiles('data', 1)" id="files_data_next" style="padding:4px 8px;">→</button>
+              <select id="files_data_page" onchange="goToPage('data', this.value)" style="padding:2px 4px; border-radius:6px; border:1px solid #ddd; font-size:12px;"></select>
+            </div>
+          </div>
           <div id="files_data" class="small"></div>
         </div>
       </div>
@@ -176,6 +212,10 @@ static const char ROOT_HTML[] PROGMEM = R"HTML(
   </div>
 
 <script>
+// ------------------- CONFIG -------------------
+const FILES_PER_PAGE = {{FILES_PER_PAGE}};  // Number of daily files to show per page (configured in .ino)
+
+// ------------------- HELPERS -------------------
 async function fetchJSON(url, { timeoutMs = 6000 } = {}){
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -251,7 +291,9 @@ function setHoverDot(key, xPx, yPx){
 }
 
 function clearHoverDots(){
-  ["wind","temp","hum","press"].forEach(k => setHoverDot(k, null, null));
+  ["temp","hum","press"].forEach(k => setHoverDot(k, null, null));
+  setHoverDot("wind_avg", null, null);
+  setHoverDot("wind_max", null, null);
 }
 
 function computeDomain(values, fields){
@@ -339,7 +381,11 @@ function hoverPlot(key, evt){
   txt += ` @ ${hh}:${mm}`;
   tooltipEl.textContent = txt;
   tooltipEl.style.display = "block";
-  tooltipEl.style.left = `${evt.clientX + 12}px`;
+
+  // Switch tooltip to left side when cursor is beyond 2/3 of the way across
+  const cursorFraction = (evt.clientX - rect.left) / rect.width;
+  const tooltipOffsetX = cursorFraction > 0.66 ? -12 : 12;
+  tooltipEl.style.left = cursorFraction > 0.66 ? `${evt.clientX + tooltipOffsetX - tooltipEl.offsetWidth}px` : `${evt.clientX + tooltipOffsetX}px`;
   tooltipEl.style.top = `${evt.clientY + 12}px`;
 
   // vertical hover line
@@ -358,10 +404,21 @@ function hoverPlot(key, evt){
       const yRange = dims.height - dims.padTop - dims.padBottom;
       const normY = (best.vAvg - domain.min) / spanY;
       yPx = dims.height - dims.padBottom - normY * yRange;
+
+      // For wind, also show max dot
+      if (key === "wind" && best.vMax !== null && best.vMax !== undefined && isFinite(best.vMax)) {
+        const normYMax = (best.vMax - domain.min) / spanY;
+        const yPxMax = dims.height - dims.padBottom - normYMax * yRange;
+        setHoverDot("wind_max", xPx, yPxMax);
+      }
     }
   }
   setHoverLine(key, xPx);
-  setHoverDot(key, xPx, yPx);
+  if (key === "wind") {
+    setHoverDot("wind_avg", xPx, yPx);
+  } else {
+    setHoverDot(key, xPx, yPx);
+  }
 }
 
 function hideTooltip(){
@@ -536,7 +593,10 @@ function renderDays(days){
       `<td>${numOrDash(d.maxTemp,1)}</td>` +
       `<td>${numOrDash(d.avgHum,1)}</td>` +
       `<td>${numOrDash(d.minHum,1)}</td>` +
-      `<td>${numOrDash(d.maxHum,1)}</td>`;
+      `<td>${numOrDash(d.maxHum,1)}</td>` +
+      `<td>${numOrDash(d.avgPress,1)}</td>` +
+      `<td>${numOrDash(d.minPress,1)}</td>` +
+      `<td>${numOrDash(d.maxPress,1)}</td>`;
     tb.appendChild(tr);
   }
 }
@@ -574,23 +634,61 @@ function bytesPretty(n){
   return `${(n/(1024*1024)).toFixed(1)} MB`;
 }
 
+function wifiQuality(rssi){
+  if (rssi === null || rssi === undefined || !isFinite(rssi)) return "--";
+  if (rssi >= -50) return "Excellent";
+  if (rssi >= -60) return "Good";
+  if (rssi >= -70) return "Fair";
+  return "Weak";
+}
+
+const filesState = {
+  data: { offset: 0, total: 0, files: [] }
+};
+
 async function loadFiles(dir){
-  const target = document.getElementById(dir === 'data' ? 'files_data' : 'files_chunks');
+  const target = document.getElementById('files_data');
+  const navEl = document.getElementById('files_data_nav');
+  const infoEl = document.getElementById('files_data_info');
+  const prevBtn = document.getElementById('files_data_prev');
+  const nextBtn = document.getElementById('files_data_next');
+
   if (!target) return;
   target.textContent = "Loading...";
+
   try{
     const j = await fetchJSON(`/api/files?dir=${encodeURIComponent(dir)}`);
     if (!j.ok){
       target.textContent = `Error: ${j.error || 'unknown'}`;
+      if (navEl) navEl.style.display = "none";
       return;
     }
     const files = (j.files || []).slice().sort((a,b)=> (b.path||'').localeCompare(a.path||''));
+
+    filesState[dir].files = files;
+    filesState[dir].total = files.length;
+
     if (!files.length){
       target.textContent = "(none)";
+      if (navEl) navEl.style.display = "none";
       return;
     }
+
+    // Show navigation if more than FILES_PER_PAGE
+    if (navEl) {
+      navEl.style.display = files.length > FILES_PER_PAGE ? "flex" : "none";
+    }
+
+    // Clamp offset
+    const maxOffset = Math.max(0, files.length - FILES_PER_PAGE);
+    if (filesState[dir].offset > maxOffset) filesState[dir].offset = maxOffset;
+    if (filesState[dir].offset < 0) filesState[dir].offset = 0;
+
+    const offset = filesState[dir].offset;
+    const pageFiles = files.slice(offset, offset + FILES_PER_PAGE);
+
     let html = "<ul style='margin:8px 0; padding-left:18px'>";
-    for (const f of files){
+    for (const f of pageFiles){
       const p = f.path;
       const s = bytesPretty(f.size);
       const dl = `/download?path=${encodeURIComponent(p)}`;
@@ -598,9 +696,48 @@ async function loadFiles(dir){
     }
     html += "</ul>";
     target.innerHTML = html;
+
+    // Update pagination info and button states
+    const totalPages = Math.ceil(files.length / FILES_PER_PAGE);
+    const currentPage = Math.floor(offset / FILES_PER_PAGE) + 1;
+
+    if (infoEl) {
+      const start = offset + 1;
+      const end = Math.min(offset + FILES_PER_PAGE, files.length);
+      infoEl.textContent = `${start}-${end} of ${files.length}`;
+    }
+    if (prevBtn) prevBtn.disabled = offset === 0;
+    if (nextBtn) nextBtn.disabled = offset + FILES_PER_PAGE >= files.length;
+
+    // Populate page selector
+    const pageSelector = document.getElementById(`files_${dir}_page`);
+    if (pageSelector) {
+      pageSelector.innerHTML = '';
+      for (let i = 1; i <= totalPages; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `Page ${i}`;
+        if (i === currentPage) option.selected = true;
+        pageSelector.appendChild(option);
+      }
+    }
+
   }catch(e){
     target.textContent = "Error loading list";
+    if (navEl) navEl.style.display = "none";
   }
+}
+
+function navigateFiles(dir, delta){
+  filesState[dir].offset += delta * FILES_PER_PAGE;
+  loadFiles(dir);
+}
+
+function goToPage(dir, pageNum){
+  const page = parseInt(pageNum, 10);
+  if (!isFinite(page) || page < 1) return;
+  filesState[dir].offset = (page - 1) * FILES_PER_PAGE;
+  loadFiles(dir);
 }
 
 function downloadZip(){
@@ -626,6 +763,7 @@ async function deleteFile(pathRaw, dir){
     const txt = await res.text();
     if (res.ok){
       alert("File deleted.");
+      filesState[dir].offset = 0;  // Reset to first page
       loadFiles(dir);
     } else {
       alert("Delete failed: " + txt);
@@ -651,6 +789,7 @@ async function clearSdData(){
     const txt = await res.text();
     if (res.ok){
       alert("SD data cleared.");
+      filesState.data.offset = 0;  // Reset to first page
       loadFiles('data');
     } else {
       alert("Failed to clear SD data: " + txt);
@@ -690,6 +829,8 @@ async function tick(){
 
     document.getElementById("bmeok").textContent = now.bme280_ok ? "OK" : "ERR";
     document.getElementById("sdok").textContent  = now.sd_ok ? "OK" : "ERR";
+    document.getElementById("wifi").textContent = now.wifi_rssi !== null && now.wifi_rssi !== undefined ? String(now.wifi_rssi) : "--";
+    document.getElementById("wifi_quality").textContent = wifiQuality(now.wifi_rssi);
 
     const [bucketsRes, daysRes] = await Promise.allSettled([
       fetchJSON("/api/buckets", { timeoutMs: 2500 }),
@@ -698,6 +839,8 @@ async function tick(){
 
     if (bucketsRes.status === "fulfilled") {
       const series = Array.isArray(bucketsRes.value.buckets) ? bucketsRes.value.buckets : [];
+      const bucketSeconds = bucketsRes.value.bucket_seconds || "--";
+      document.getElementById("bucket_sec").textContent = bucketSeconds;
       renderWind(series);
       renderSingleSeries(series, "avgTempC", "line_temp", "#d9534f", "axis_temp", "axis_x_temp");
       renderSingleSeries(series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");

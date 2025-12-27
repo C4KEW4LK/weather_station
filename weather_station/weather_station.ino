@@ -50,7 +50,7 @@ void rebuildTodayAggregates();
 // ------------------- CONFIG -------------------
 
 // Retention for /data daily files
-static constexpr int RETENTION_DAYS = 360;   // delete daily file older than this (in days)
+static constexpr int RETENTION_DAYS = 3600;   // delete daily file older than this (in days)
 
 // Wind
 static constexpr int   PULSE_PIN = 3;                 // GPIO3
@@ -59,7 +59,7 @@ static constexpr uint32_t NOW_SAMPLE_MS = 250;
 static constexpr uint32_t PPS_WINDOW_MS = 1000;
 
 // Buckets for UI chart (RAM only)
-static constexpr int BUCKET_SECONDS = 60;             // change this for different bucket durations
+static constexpr int BUCKET_SECONDS = 120;             // change this for different bucket durations
 static constexpr int BUCKETS_24H  = 24 * 60 * 60 / BUCKET_SECONDS;
 static constexpr int DAYS_HISTORY = 30;               // RAM daily summaries shown in UI
 static_assert((86400 % BUCKET_SECONDS) == 0, "BUCKET_SECONDS must divide evenly into 24h");
@@ -78,8 +78,11 @@ static const char* NTP1 = "pool.ntp.org";
 static const char* NTP2 = "time.google.com";
 static const char* NTP3 = "time.windows.com";
 
-// POSIX TZ string for Canberra/Sydney with DST (UTC+10 standard, UTC+11 daylight)
+// POSIX TZ string for Sydney with DST (UTC+10 standard, UTC+11 daylight)
 static const char* TZ_AU_SYDNEY = "AEST-10AEDT-11,M10.1.0/02:00:00,M4.1.0/03:00:00";
+
+// Web UI
+static constexpr int FILES_PER_PAGE = 30;  // Number of daily files to show per page in web UI
 
 // ------------------- DATA -------------------
 
@@ -103,6 +106,9 @@ struct DaySummary {
   float avgHum;
   float minHum;
   float maxHum;
+  float avgPress;
+  float minPress;
+  float maxPress;
 };
 
 static BucketSample gBuckets[BUCKETS_24H];
@@ -114,6 +120,7 @@ static uint32_t gDaysCount = 0;
 
 // wind pulses
 static volatile uint32_t gPulseCount = 0;
+static volatile uint32_t gLastPulseMicros = 0;
 static float gNowWindMS = 0.0f;
 static float gNowWindMaxSinceBoot = 0.0f;
 
@@ -145,6 +152,10 @@ static float    gTodayHumSum = 0.0f;
 static uint32_t gTodayHumCount = 0;
 static float    gTodayHumMin = NAN;
 static float    gTodayHumMax = NAN;
+static float    gTodayPressSum = 0.0f;
+static uint32_t gTodayPressCount = 0;
+static float    gTodayPressMin = NAN;
+static float    gTodayPressMax = NAN;
 
 // Auth / rate limit for password-protected endpoints
 static int      gPwAttempts = 0;
@@ -164,6 +175,10 @@ static void clearTodayAggregates() {
   gTodayHumCount = 0;
   gTodayHumMin = NAN;
   gTodayHumMax = NAN;
+  gTodayPressSum = 0.0f;
+  gTodayPressCount = 0;
+  gTodayPressMin = NAN;
+  gTodayPressMax = NAN;
 }
 
 // BME280 latest
@@ -179,14 +194,21 @@ static bool gSdOk = false;
 static constexpr uint32_t FILES_CACHE_TTL_MS = 30000; // 30s reuse to avoid slow SD scans on refresh
 static String gFilesCacheDataJson;
 static uint32_t gFilesCacheDataMs = 0;
-static String gFilesCacheChunksJson;
-static uint32_t gFilesCacheChunksMs = 0;
 
 // Web
 static WebServer server(80);
 
 // ------------------- ISR -------------------
-void IRAM_ATTR onPulse() { gPulseCount++; }
+void IRAM_ATTR onPulse() {
+  uint32_t now = micros();
+  uint32_t elapsed = now - gLastPulseMicros;
+
+  // Debounce: ignore pulses closer than 2ms (2000 microseconds)
+  if (elapsed < 2000) return;
+
+  gLastPulseMicros = now;
+  gPulseCount++;
+}
 
 // ------------------- TIME HELPERS -------------------
 static inline bool timeIsValid(time_t t) { return t > 1577836800; } // > 2020-01-01
@@ -359,9 +381,7 @@ static bool splitCSVLine(const String& line, String parts[], int expectedParts) 
 
 static void invalidateFilesCache() {
   gFilesCacheDataMs = 0;
-  gFilesCacheChunksMs = 0;
   gFilesCacheDataJson = "";
-  gFilesCacheChunksJson = "";
 }
 
 void loadRecentBucketsFromSD(time_t nowEpoch) {
@@ -473,9 +493,15 @@ static void accumulateTodayFromBucket(const BucketSample& b) {
     gTodayHumSum += b.avgHumRH;
     gTodayHumCount++;
   }
+  if (isfinite(b.avgPressHpa)) {
+    if (!isfinite(gTodayPressMin) || b.avgPressHpa < gTodayPressMin) gTodayPressMin = b.avgPressHpa;
+    if (!isfinite(gTodayPressMax) || b.avgPressHpa > gTodayPressMax) gTodayPressMax = b.avgPressHpa;
+    gTodayPressSum += b.avgPressHpa;
+    gTodayPressCount++;
+  }
 }
 
-void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp, float minTemp, float maxTemp, float avgHum, float minHum, float maxHum) {
+void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp, float minTemp, float maxTemp, float avgHum, float minHum, float maxHum, float avgPress = NAN, float minPress = NAN, float maxPress = NAN) {
   if (!timeIsValid(dayStart)) return;
   DaySummary d{};
   d.dayStartEpoch = dayStart;
@@ -487,6 +513,9 @@ void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp
   d.avgHum = avgHum;
   d.minHum = minHum;
   d.maxHum = maxHum;
+  d.avgPress = avgPress;
+  d.minPress = minPress;
+  d.maxPress = maxPress;
 
   gDays[gDayWrite] = d;
   gDayWrite = (gDayWrite + 1) % DAYS_HISTORY;
@@ -506,7 +535,8 @@ void maybeRolloverDay(time_t nowEpoch) {
       float avgWind = gTodaySumOfBucketAvgs / (float)gTodayBucketCount;
       float avgTemp = (gTodayTempCount > 0) ? (gTodayTempSum / (float)gTodayTempCount) : NAN;
       float avgHum  = (gTodayHumCount > 0) ? (gTodayHumSum / (float)gTodayHumCount) : NAN;
-      pushDaySummary(gTodayMidnightEpoch, avgWind, gTodayMax, avgTemp, gTodayTempMin, gTodayTempMax, avgHum, gTodayHumMin, gTodayHumMax);
+      float avgPress = (gTodayPressCount > 0) ? (gTodayPressSum / (float)gTodayPressCount) : NAN;
+      pushDaySummary(gTodayMidnightEpoch, avgWind, gTodayMax, avgTemp, gTodayTempMin, gTodayTempMax, avgHum, gTodayHumMin, gTodayHumMax, avgPress, gTodayPressMin, gTodayPressMax);
     }
 
     gTodayMidnightEpoch = midnight;
@@ -527,6 +557,10 @@ struct DayAgg {
   uint32_t humCount = 0;
   float humMin = NAN;
   float humMax = NAN;
+  float pressSum = 0.0f;
+  uint32_t pressCount = 0;
+  float pressMin = NAN;
+  float pressMax = NAN;
 };
 
 static void computeBucketSample(BucketSample& b, time_t bucketStart) {
@@ -552,8 +586,7 @@ static void computeBucketSample(BucketSample& b, time_t bucketStart) {
     b.avgWind = 0.0f;
   }
 
-  float bucketMax = (gBucketWindMax2 > 0.0f) ? gBucketWindMax2 : gBucketWindMax1;
-  b.maxWind = bucketMax;
+  b.maxWind = gBucketWindMax1;
   if (b.maxWind < b.avgWind) b.maxWind = b.avgWind;
 }
 
@@ -612,6 +645,7 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
       float windMax = parseFloatOrNan(parts[3]);
       float temp    = parseFloatOrNan(parts[4]);
       float hum     = parseFloatOrNan(parts[5]);
+      float press   = parseFloatOrNan(parts[6]);
 
       if (isfinite(windAvg)) { agg->sumWind += windAvg; agg->countWind++; }
       if (isfinite(windMax)) { if (!isfinite(agg->maxWind) || windMax > agg->maxWind) agg->maxWind = windMax; }
@@ -624,6 +658,11 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
         if (!isfinite(agg->humMin) || hum < agg->humMin) agg->humMin = hum;
         if (!isfinite(agg->humMax) || hum > agg->humMax) agg->humMax = hum;
         agg->humSum += hum; agg->humCount++;
+      }
+      if (isfinite(press)) {
+        if (!isfinite(agg->pressMin) || press < agg->pressMin) agg->pressMin = press;
+        if (!isfinite(agg->pressMax) || press > agg->pressMax) agg->pressMax = press;
+        agg->pressSum += press; agg->pressCount++;
       }
     }
     f.close();
@@ -646,9 +685,10 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
     float avgWind = (a.countWind > 0) ? (a.sumWind / (float)a.countWind) : NAN;
     float maxWind = a.maxWind;
     float avgTemp = (a.tempCount > 0) ? (a.tempSum / (float)a.tempCount) : NAN;
+    float avgPress = (a.pressCount > 0) ? (a.pressSum / (float)a.pressCount) : NAN;
     pushDaySummary(entries[i].day, avgWind, maxWind, avgTemp, a.tempMin, a.tempMax,
                    (a.humCount > 0) ? (a.humSum / (float)a.humCount) : NAN,
-                   a.humMin, a.humMax);
+                   a.humMin, a.humMax, avgPress, a.pressMin, a.pressMax);
   }
 }
 
@@ -689,9 +729,14 @@ bool buildCurrentDaySummary(DaySummary& out) {
   float humMin = gTodayHumMin;
   float humMax = gTodayHumMax;
 
-  // Do not add the in-progress bucket's transient max; it is folded in once finalized.
+  float pressSum = gTodayPressSum;
+  uint32_t pressCount = gTodayPressCount;
+  float pressMin = gTodayPressMin;
+  float pressMax = gTodayPressMax;
 
-  bool hasData = (windCount > 0) || (tempCount > 0) || (humCount > 0);
+  // Do not incluide the in-progress bucket's data in this step.
+
+  bool hasData = (windCount > 0) || (tempCount > 0) || (humCount > 0) || (pressCount > 0);
   if (!hasData) return false;
 
   out.dayStartEpoch = gTodayMidnightEpoch;
@@ -703,6 +748,9 @@ bool buildCurrentDaySummary(DaySummary& out) {
   out.avgHum = (humCount > 0) ? (humSum / (float)humCount) : NAN;
   out.minHum = humMin;
   out.maxHum = humMax;
+  out.avgPress = (pressCount > 0) ? (pressSum / (float)pressCount) : NAN;
+  out.minPress = pressMin;
+  out.maxPress = pressMax;
   return true;
 }
 
@@ -716,8 +764,8 @@ BucketSample currentBucketSnapshot() {
 // ------------------- DOWNLOAD / FILE LIST -------------------
 
 static bool isAllowedPath(const String& p) {
-  // Only allow these two directories, and no path traversal.
-  if (!p.startsWith("/data/") && !p.startsWith("/chunks/")) return false;
+  // Only allow /data directory, and no path traversal.
+  if (!p.startsWith("/data/")) return false;
   if (p.indexOf("..") >= 0) return false;
   if (p.indexOf('\\') >= 0) return false;
   if (!p.endsWith(".csv")) return false;
@@ -728,14 +776,9 @@ static bool parseYmdFromPath(const String& path, time_t& outMidnightLocal) {
   int idx = path.lastIndexOf('/');
   String name = (idx >= 0) ? path.substring(idx + 1) : path;
   if (name.length() < 8) return false;
-  String ymd;
-  if (name.startsWith("chunk_") && name.length() >= 13) {
-    ymd = name.substring(6, 14); // chunk_YYYYMMDD
-  } else if (name.length() >= 12) {
-    ymd = name.substring(0, 8);  // YYYYMMDD
-  } else {
-    return false;
-  }
+
+  // Parse YYYYMMDD.csv format
+  String ymd = name.substring(0, 8);
   if (ymd.length() != 8) return false;
   int y = ymd.substring(0,4).toInt();
   int m = ymd.substring(4,6).toInt();
@@ -792,12 +835,12 @@ void handleApiFiles() {
     return;
   }
 
-  String dir = server.arg("dir"); // "data" or "chunks"
+  String dir = server.arg("dir");
   String base;
-  if (dir == "data") base = "/data";
-  else if (dir == "chunks") base = "/chunks";
-  else {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"dir_must_be_data_or_chunks\"}");
+  if (dir == "data") {
+    base = "/data";
+  } else {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"dir_must_be_data\"}");
     return;
   }
 
@@ -807,10 +850,8 @@ void handleApiFiles() {
   }
 
   uint32_t nowMs = millis();
-  String* cacheJson = (dir == "data") ? &gFilesCacheDataJson : &gFilesCacheChunksJson;
-  uint32_t* cacheMs = (dir == "data") ? &gFilesCacheDataMs : &gFilesCacheChunksMs;
-  if (*cacheMs != 0 && (nowMs - *cacheMs) < FILES_CACHE_TTL_MS && cacheJson->length() > 0) {
-    server.send(200, "application/json", *cacheJson);
+  if (gFilesCacheDataMs != 0 && (nowMs - gFilesCacheDataMs) < FILES_CACHE_TTL_MS && gFilesCacheDataJson.length() > 0) {
+    server.send(200, "application/json", gFilesCacheDataJson);
     return;
   }
 
@@ -850,8 +891,8 @@ void handleApiFiles() {
   root.close();
 
   out += "]}";
-  *cacheJson = out;
-  *cacheMs = nowMs;
+  gFilesCacheDataJson = out;
+  gFilesCacheDataMs = nowMs;
   server.send(200, "application/json", out);
 }
 
@@ -1066,7 +1107,9 @@ void handleDownloadZip() {
 // ------------------- WEB UI + API -------------------
 
 void handleRoot() {
-  server.send_P(200, "text/html", ROOT_HTML);
+  String html = String(ROOT_HTML);
+  html.replace("{{FILES_PER_PAGE}}", String(FILES_PER_PAGE));
+  server.send(200, "text/html", html);
 }
 
 void handleApiHelp() {
@@ -1086,15 +1129,10 @@ void handleApiClearData() {
     server.send(503, "application/json", "{\"ok\":false,\"error\":\"sd_not_available\"}");
     return;
   }
-  bool okData = deleteDirFiles("/data");
-  bool okChunks = deleteDirFiles("/chunks");
+  bool ok = deleteDirFiles("/data");
   invalidateFilesCache();
-  bool overall = okData && okChunks;
-  String out = String("{\"ok\":") + (overall ? "true" : "false") +
-               ",\"data_cleared\":" + (okData ? "true" : "false") +
-               ",\"chunks_cleared\":" + (okChunks ? "true" : "false") +
-               "}";
-  server.send(overall ? 200 : 500, "application/json", out);
+  String out = String("{\"ok\":") + (ok ? "true" : "false") + "}";
+  server.send(ok ? 200 : 500, "application/json", out);
 }
 
 void handleApiDelete() {
@@ -1154,7 +1192,8 @@ void handleApiNow() {
 
   out += "\"sd_ok\":" + String(gSdOk ? "true" : "false") + ",";
   out += "\"uptime_ms\":" + String((uint32_t)millis()) + ",";
-  out += "\"retention_days\":" + String(RETENTION_DAYS);
+  out += "\"retention_days\":" + String(RETENTION_DAYS) + ",";
+  out += "\"wifi_rssi\":" + String(WiFi.RSSI());
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -1249,14 +1288,18 @@ void handleApiDays() {
     out += "\"maxTemp\":" + (isfinite(curDay.maxTemp) ? String(curDay.maxTemp, 2) : String("null")) + ",";
     out += "\"avgHum\":" + (isfinite(curDay.avgHum) ? String(curDay.avgHum, 2) : String("null")) + ",";
     out += "\"minHum\":" + (isfinite(curDay.minHum) ? String(curDay.minHum, 2) : String("null")) + ",";
-    out += "\"maxHum\":" + (isfinite(curDay.maxHum) ? String(curDay.maxHum, 2) : String("null"));
+    out += "\"maxHum\":" + (isfinite(curDay.maxHum) ? String(curDay.maxHum, 2) : String("null")) + ",";
+    out += "\"avgPress\":" + (isfinite(curDay.avgPress) ? String(curDay.avgPress, 2) : String("null")) + ",";
+    out += "\"minPress\":" + (isfinite(curDay.minPress) ? String(curDay.minPress, 2) : String("null")) + ",";
+    out += "\"maxPress\":" + (isfinite(curDay.maxPress) ? String(curDay.maxPress, 2) : String("null"));
     out += "}";
     firstOut = false;
   }
   uint32_t count = gDaysCount;
-  int startIdx = (gDayWrite - (int)gDaysCount + DAYS_HISTORY) % DAYS_HISTORY;
-  for (uint32_t i = 0; i < count; i++) {
-    int idx = (startIdx + (int)i) % DAYS_HISTORY;
+  // Loop backwards from most recent to oldest
+  for (int i = (int)count - 1; i >= 0; i--) {
+    int startIdx = (gDayWrite - (int)gDaysCount + DAYS_HISTORY) % DAYS_HISTORY;
+    int idx = (startIdx + i) % DAYS_HISTORY;
     const DaySummary& d = gDays[idx];
     if (!timeIsValid(d.dayStartEpoch)) continue;
     if (!firstOut) out += ",";
@@ -1271,7 +1314,10 @@ void handleApiDays() {
     out += "\"maxTemp\":" + (isfinite(d.maxTemp) ? String(d.maxTemp, 2) : String("null")) + ",";
     out += "\"avgHum\":" + (isfinite(d.avgHum) ? String(d.avgHum, 2) : String("null")) + ",";
     out += "\"minHum\":" + (isfinite(d.minHum) ? String(d.minHum, 2) : String("null")) + ",";
-    out += "\"maxHum\":" + (isfinite(d.maxHum) ? String(d.maxHum, 2) : String("null"));
+    out += "\"maxHum\":" + (isfinite(d.maxHum) ? String(d.maxHum, 2) : String("null")) + ",";
+    out += "\"avgPress\":" + (isfinite(d.avgPress) ? String(d.avgPress, 2) : String("null")) + ",";
+    out += "\"minPress\":" + (isfinite(d.minPress) ? String(d.minPress, 2) : String("null")) + ",";
+    out += "\"maxPress\":" + (isfinite(d.maxPress) ? String(d.maxPress, 2) : String("null"));
     out += "}";
   }
   out += "]}";
@@ -1283,7 +1329,7 @@ void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay) {
   ensureDir("/data");
   File f = SD.open("/data/day_summaries_cache.csv", FILE_WRITE);
   if (!f) return;
-  f.print("dayStartEpoch,avgWind,maxWind,avgTemp,minTemp,maxTemp,avgHum,minHum,maxHum\n");
+  f.print("dayStartEpoch,avgWind,maxWind,avgTemp,minTemp,maxTemp,avgHum,minHum,maxHum,avgPress,minPress,maxPress\n");
   auto writeRow = [&](const DaySummary& d){
     if (!timeIsValid(d.dayStartEpoch)) return;
     f.print((uint32_t)d.dayStartEpoch); f.print(",");
@@ -1294,7 +1340,10 @@ void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay) {
     f.print(isfinite(d.maxTemp) ? String(d.maxTemp,2) : String("")); f.print(",");
     f.print(isfinite(d.avgHum) ? String(d.avgHum,2) : String("")); f.print(",");
     f.print(isfinite(d.minHum) ? String(d.minHum,2) : String("")); f.print(",");
-    f.print(isfinite(d.maxHum) ? String(d.maxHum,2) : String(""));
+    f.print(isfinite(d.maxHum) ? String(d.maxHum,2) : String("")); f.print(",");
+    f.print(isfinite(d.avgPress) ? String(d.avgPress,2) : String("")); f.print(",");
+    f.print(isfinite(d.minPress) ? String(d.minPress,2) : String("")); f.print(",");
+    f.print(isfinite(d.maxPress) ? String(d.maxPress,2) : String(""));
     f.print("\n");
   };
   if (hasCurDay && curDay) writeRow(*curDay);
@@ -1320,8 +1369,9 @@ bool loadDaySummariesCache() {
     line.trim();
     if (!line.length()) continue;
     if (first) { first = false; if (line.startsWith("dayStartEpoch")) continue; }
-    String parts[9];
-    if (!splitCSVLine(line, parts, 9)) continue;
+    String parts[12];
+    int numParts = splitCSVLine(line, parts, 12) ? 12 : 0;
+    if (numParts < 9) continue;  // Need at least 9 fields for backward compatibility
     DaySummary d{};
     d.dayStartEpoch = (time_t)parts[0].toInt();
     if (!timeIsValid(d.dayStartEpoch)) continue;
@@ -1333,6 +1383,10 @@ bool loadDaySummariesCache() {
     d.avgHum  = parts[6].length() ? parts[6].toFloat() : NAN;
     d.minHum  = parts[7].length() ? parts[7].toFloat() : NAN;
     d.maxHum  = parts[8].length() ? parts[8].toFloat() : NAN;
+    // Pressure fields (optional for backward compatibility)
+    d.avgPress = (numParts > 9 && parts[9].length()) ? parts[9].toFloat() : NAN;
+    d.minPress = (numParts > 10 && parts[10].length()) ? parts[10].toFloat() : NAN;
+    d.maxPress = (numParts > 11 && parts[11].length()) ? parts[11].toFloat() : NAN;
     gDays[gDayWrite] = d;
     gDayWrite = (gDayWrite + 1) % DAYS_HISTORY;
     if (gDaysCount < (uint32_t)DAYS_HISTORY) gDaysCount++;
@@ -1368,7 +1422,6 @@ void initSD() {
 
   gSdOk = true;
   ensureDir("/data");
-  ensureDir("/chunks");
 }
 
 // ------------------- LOOP HELPERS -------------------
@@ -1457,8 +1510,8 @@ void setup() {
   gDayWrite = 0;
   gDaysCount = 0;
 
+  // Set up pulse pin but don't attach interrupt yet to avoid counting noise during WiFi init
   pinMode(PULSE_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(PULSE_PIN), onPulse, RISING);
 
   WiFi.mode(WIFI_STA);
   WiFiManager wm;
@@ -1495,11 +1548,14 @@ void setup() {
   time_t nowE = epochNow();
   gTodayMidnightEpoch = localMidnight(nowE);
   deleteOldDailyFileIfNeeded(gTodayMidnightEpoch);
-  if (loadDaySummariesCache()) {
-  } else {
-    loadDaySummariesFromSD(nowE);
-    saveDaySummariesCache(nullptr, false);
+
+  // Remove stale cache file if it exists
+  if (gSdOk && SD.exists("/data/day_summaries_cache.csv")) {
+    SD.remove("/data/day_summaries_cache.csv");
   }
+
+  // Always load fresh from SD to avoid stale cache issues
+  loadDaySummariesFromSD(nowE);
   loadRecentBucketsFromSD(nowE);
 
   time_t aligned = floorToBucketBoundaryLocal(nowE);
@@ -1527,12 +1583,16 @@ void setup() {
 
   ArduinoOTA.setHostname("anemometer");
   ArduinoOTA.onStart([]() {
-    // Could stop services if needed
   });
   ArduinoOTA.onError([](ota_error_t error) {
     (void)error;
   });
   ArduinoOTA.begin();
+
+  // Attach pulse interrupt after all initialization to avoid counting noise during boot
+  gLastPulseMicros = micros();
+  gPulseCount = 0;
+  attachInterrupt(digitalPinToInterrupt(PULSE_PIN), onPulse, RISING);
 }
 
 void loop() {

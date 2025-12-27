@@ -86,11 +86,9 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
 
   <div class="card">
     <div><code>/api/clear_data</code> (POST, pw)</div>
-    <div class="muted">Delete CSV files in <code>/data</code> (and any leftover chunks). Requires <code>pw</code>.</div>
+    <div class="muted">Delete all CSV files in <code>/data</code>. Requires <code>pw</code>.</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
-  "ok": true,
-  "data_cleared": true,
-  "chunks_cleared": true
+  "ok": true
 }</code></pre>
   </div>
 
