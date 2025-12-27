@@ -234,7 +234,12 @@ function plotMouseDown(key, evt){
   const now = Date.now();
   const timeSinceLastClick = now - dragState.lastClickTime;
   dragState.lastClickTime = now;
-  if (timeSinceLastClick < 300) return;
+
+  // Double-click detected - reset zoom
+  if (timeSinceLastClick < 300) {
+    resetZoom(key);
+    return;
+  }
 
   const rect = evt.currentTarget.getBoundingClientRect();
   const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
