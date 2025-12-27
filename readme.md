@@ -26,6 +26,21 @@ It provides:
   * Added file deletion functionality with password protection
   * Added "Clear all SD data" button with password protection
   * Added reboot button
+  * Added RAM usage pill showing free memory and percentage used
+  * Streamlined plot layout (removed card borders to save space)
+  * Daily summaries table now has visual fade indicator when scrollable
+  * Sticky date column in daily summaries with clear border separator
+  * Interactive plot zooming:
+    * Click and drag to zoom into a time region
+    * Double-click to reset zoom
+    * Auto-scales y-axis when zoomed to show detail in visible range
+    * Configurable point limit (default 500) for performance with large datasets
+    * Zoom reveals more detail by downsampling only the visible region
+  * Plot rendering improvements:
+    * Clip paths prevent plot lines from overlapping y-axis labels
+    * Fixed x-axis font stretching on viewport resize
+    * 10 x-axis ticks for cleaner time labels
+    * Plots limited to 330px minimum width with responsive layout
 
 * **Code improvements:**
   * Added 2ms debounce filter on pulse input to prevent spurious triggers
@@ -34,13 +49,25 @@ It provides:
   * Daily summaries now include temperature and humidity min/max/avg
   * Removed stale cache logic - always loads fresh from SD on boot
   * Daily summaries now sorted from most recent to oldest in API response
+  * Fixed invalid JSON generation in `/api/buckets` endpoint (empty bucket validation)
+  * Frontend JSON parsing now handles malformed responses gracefully
+  * Optimized RAM usage with compact data storage:
+    * Wind: stored as m/s * 2 (uint8_t, 0-127 m/s range) - saves 6 bytes per bucket
+    * Temperature: stored as int8_t in °C - saves 3 bytes per bucket
+    * Humidity: stored as uint8_t (0-100) - saves 3 bytes per bucket
+    * Pressure: stored as int8_t offset from 1000 hPa - saves 3 bytes per bucket
+    * **Total savings: ~4.3 KB RAM** for 24h of 5-minute buckets
+  * Separated public API (`/api/buckets`) and internal UI API (`/api/buckets_ui`)
+    * Public API returns full precision floats
+    * Internal UI API uses compact format to save bandwidth
 
 * **API additions:**
-  * `/api/buckets` now returns temperature, humidity, and pressure data
+  * `/api/buckets` now returns temperature, humidity, and pressure data with full precision
+  * `/api/buckets_ui` - Compact format endpoint for internal UI use (saves bandwidth)
   * `/api/delete` (POST) - Delete individual files (password protected)
   * `/api/clear_data` (POST) - Clear all SD data (password protected)
   * `/api/reboot` (POST) - Reboot the device
-  * `/api/now` now includes `uptime_ms` field
+  * `/api/now` now includes `uptime_ms`, `free_heap`, and `heap_size` fields for RAM monitoring
 
 ---
 
@@ -120,12 +147,26 @@ Each row contains:
 ### Daily files (`/data`)
 
 * One CSV per day
-* Automatically deleted after **RETENTION_DAYS**
-* Controlled by:
+* Automatically deleted after `RETENTION_DAYS` (default 360 days)
+* See Configuration options below for details
+
+---
+
+## Configuration options
+
+Key constants in `weather_station.ino`:
 
 ```cpp
-static constexpr int RETENTION_DAYS = 360;
+static constexpr int BUCKET_SECONDS = 300;      // Logging interval (5 minutes)
+static constexpr int RETENTION_DAYS = 360;      // Days to keep CSV files
+static constexpr int FILES_PER_PAGE = 30;       // Files shown per page in UI
+static constexpr int MAX_PLOT_POINTS = 500;     // Max points rendered on plots (for performance)
 ```
+
+* `BUCKET_SECONDS`: How often data is logged (default 5 minutes = 300 seconds)
+* `RETENTION_DAYS`: Auto-delete CSV files older than this many days
+* `FILES_PER_PAGE`: Number of files shown per page in the CSV download section
+* `MAX_PLOT_POINTS`: Maximum number of points rendered on plots to prevent performance issues with large datasets. When zooming, this limit applies only to the visible region, revealing more detail.
 
 ---
 
@@ -156,8 +197,14 @@ http://<device-ip>/
   * Temperature
   * Humidity
   * Pressure
+  * Interactive zoom (click and drag, double-click to reset)
+  * Auto-scaling y-axis when zoomed
+  * Performance optimization (configurable via `MAX_PLOT_POINTS` constant, default 500)
 * Smart tooltip positioning (auto-adjusts to avoid going off-screen)
-* Daily wind summaries (RAM)
+* Daily summaries table:
+  * Scrollable with sticky date column and visual fade indicator
+  * Shows wind, temperature, humidity, and pressure data
+  * Sorted from most recent to oldest
 * CSV download section:
   * Daily files (paginated - configurable via `FILES_PER_PAGE` constant, default 30 per page)
   * Page navigation controls (previous/next buttons + page selector)
@@ -204,7 +251,9 @@ Example:
 
 * Returns five-minute buckets for the last 24 hours
 * Includes wind, temperature, humidity, and pressure data
-* Used by UI graphs
+* Returns full precision floats for all values
+* Uses compact JSON keys to reduce bandwidth
+* Chunked transfer encoding to handle large responses
 
 Example:
 
@@ -214,21 +263,65 @@ Example:
   "bucket_seconds": 300,
   "buckets": [
     {
-      "startEpoch": 1734140200,
-      "avgWind": 1.12,
-      "maxWind": 2.34,
-      "samples": 120,
-      "avgTempC": 23.5,
-      "avgHumRH": 54.2,
-      "avgPressHpa": 1012.6
+      "t": 1734140200,
+      "w": {"a": 1.12, "m": 2.34, "s": 120},
+      "T": 23.5,
+      "H": 54.2,
+      "P": 1012.6
     }
   ]
 }
 ```
 
+**Field mapping:**
+- `t` = timestamp (epoch seconds)
+- `w.a` = average wind (m/s)
+- `w.m` = max wind (m/s)
+- `w.s` = sample count
+- `T` = temperature (°C)
+- `H` = humidity (%)
+- `P` = pressure (hPa)
+```
+
 ---
 
-### 3) Daily summaries (RAM)
+### 3) Last 24h sensor buckets (compact format)
+
+**GET** `/api/buckets_ui`
+
+* Internal endpoint used by the web UI
+* Array format (no keys) for bandwidth savings
+* Each bucket is an array of 7 full-precision numbers
+* Chunked transfer encoding with batching for performance
+
+Example:
+
+```json
+{
+  "now_epoch": 1734158023,
+  "bucket_seconds": 300,
+  "buckets": [
+    [1734140200, 1.12, 2.34, 120, 23.5, 54.2, 1012.6]
+  ]
+}
+```
+
+**Array indices:**
+- `[0]` = timestamp (epoch seconds)
+- `[1]` = average wind (m/s)
+- `[2]` = max wind (m/s)
+- `[3]` = sample count
+- `[4]` = temperature (°C)
+- `[5]` = humidity (%)
+- `[6]` = pressure (hPa)
+
+**Example bucket:** `[1734140200, 1.12, 2.34, 120, 23.5, 54.2, 1012.6]`
+= 2023-12-14 09:30, 1.12 m/s avg, 2.34 m/s max, 120 samples, 23.5°C, 54.2%, 1012.6 hPa
+```
+
+---
+
+### 4) Daily summaries (RAM)
 
 **GET** `/api/days`
 
@@ -257,7 +350,7 @@ Example:
 
 ---
 
-### 4) List CSV files
+### 5) List CSV files
 
 **GET** `/api/files?dir=data`
 
@@ -278,7 +371,7 @@ Example:
 
 ---
 
-### 5) Download a single CSV
+### 6) Download a single CSV
 
 **GET** `/download?path=/data/20251214.csv`
 
@@ -288,7 +381,7 @@ Example:
 
 ---
 
-### 6) Download last N days as ZIP
+### 7) Download last N days as ZIP
 
 **GET** `/download_zip?days=N`
 
@@ -313,7 +406,7 @@ last_<N>_days.zip
 
 ---
 
-### 7) Delete a single file (password protected)
+### 8) Delete a single file (password protected)
 
 **POST** `/api/delete`
 
@@ -340,7 +433,7 @@ Response:
 
 ---
 
-### 8) Clear all SD data (password protected)
+### 9) Clear all SD data (password protected)
 
 **POST** `/api/clear_data`
 
@@ -368,7 +461,7 @@ Response:
 
 ---
 
-### 9) Reboot device
+### 10) Reboot device
 
 **POST** `/api/reboot`
 

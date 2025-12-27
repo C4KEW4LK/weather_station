@@ -36,6 +36,7 @@
 #include <vector>
 #include <algorithm>
 #include "root_page.h"
+#include "root_page_js_mini.h"
 #include "api_help_page.h"
 
 // ------------------- FORWARD DECLARATIONS -------------------
@@ -55,8 +56,7 @@ static constexpr int RETENTION_DAYS = 3600;   // delete daily file older than th
 // Wind
 static constexpr int   PULSE_PIN = 3;                 // GPIO3
 static constexpr float PPS_TO_MS = 1.75f / 20.0f;     // 0.0875 m/s per pps
-static constexpr uint32_t NOW_SAMPLE_MS = 250;
-static constexpr uint32_t PPS_WINDOW_MS = 1000;
+static constexpr uint32_t PPS_WINDOW_MS = 1000;       // Calculate wind speed every 1 second
 
 // Buckets for UI chart (RAM only)
 static constexpr int BUCKET_SECONDS = 60;             // change this for different bucket durations
@@ -89,12 +89,12 @@ static constexpr int MAX_PLOT_POINTS = 500;  // Maximum number of points to disp
 
 struct BucketSample {
   time_t startEpoch;
-  float avgWind;
-  float maxWind;
+  float avgWind;         // m/s (NAN = invalid)
+  float maxWind;         // m/s (NAN = invalid)
   uint32_t samples;
-  float avgTempC;
-  float avgHumRH;
-  float avgPressHpa;
+  float avgTempC;        // °C (NAN = invalid)
+  float avgHumRH;        // % (NAN = invalid)
+  float avgPressHpa;     // hPa (NAN = invalid)
 };
 
 struct DaySummary {
@@ -127,7 +127,6 @@ static float gNowWindMaxSinceBoot = 0.0f;
 
 // timing / bucket accumulators
 static uint32_t gLastPpsMillis = 0;
-static uint32_t gLastWindSampleMillis = 0;
 static time_t   gCurrentBucketStart = 0;
 static float    gBucketWindSum = 0.0f;
 static float    gBucketWindMax1 = 0.0f; // highest observed in bucket
@@ -325,20 +324,19 @@ void logBucketToSD(const BucketSample& b) {
 
   time_t bucketMidnightLocal = localMidnight(b.startEpoch);
   String ymd = ymdString(bucketMidnightLocal);
-
   String dailyFile = String("/data/") + ymd + ".csv";
 
-  float press_hpa = b.avgPressHpa;
-  String dt = fmtLocal(b.startEpoch);
-  String tempStr = isfinite(b.avgTempC) ? String(b.avgTempC, 2) : String("");
-  String humStr  = isfinite(b.avgHumRH) ? String(b.avgHumRH, 2) : String("");
-  String presStr = isfinite(press_hpa) ? String(press_hpa, 2) : String("");
+  String header =
+    "datetime,epoch,wind_avg_ms,wind_max_ms,temp_c,hum_rh,press_hpa,samples";
 
-  String header = "datetime,epoch,wind_avg_ms,wind_max_ms,temp_c,hum_rh,press_hpa,samples";
   String line =
-    dt + "," + String((uint32_t)b.startEpoch) + "," +
-    String(b.avgWind, 3) + "," + String(b.maxWind, 3) + "," +
-    tempStr + "," + humStr + "," + presStr + "," +
+    fmtLocal(b.startEpoch) + "," +
+    String((uint32_t)b.startEpoch) + "," +
+    String(b.avgWind, 3) + "," +
+    String(b.maxWind, 3) + "," +
+    String(b.avgTempC, 2) + "," +
+    String(b.avgHumRH, 2) + "," +
+    String(b.avgPressHpa, 2) + "," +
     String(b.samples);
 
   appendLine(dailyFile, line, header);
@@ -364,7 +362,19 @@ static bool deleteDirFiles(const char* dirPath) {
 }
 
 static float parseFloatOrNan(const String& s) {
-  return s.length() ? s.toFloat() : NAN;
+  if (!s.length()) return NAN;
+  String trimmed = s;
+  trimmed.trim();
+  if (!trimmed.length()) return NAN;
+  // Check for common invalid markers
+  if (trimmed == "nan" || trimmed == "NaN" || trimmed == "NAN") return NAN;
+  if (trimmed == "null" || trimmed == "NULL") return NAN;
+  if (trimmed == "-" || trimmed == "--") return NAN;
+  // toFloat() returns 0 for invalid input, so check if it's actually a valid number
+  // by verifying the string starts with a digit, minus, or decimal point
+  char first = trimmed.charAt(0);
+  if (first != '-' && first != '.' && !isdigit(first)) return NAN;
+  return trimmed.toFloat();
 }
 
 static bool splitCSVLine(const String& line, String parts[], int expectedParts) {
@@ -407,6 +417,9 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
       BucketSample b{};
       b.startEpoch = (time_t)parts[1].toInt();
       if (!timeIsValid(b.startEpoch) || b.startEpoch < cutoff) continue;
+      // Skip buckets that don't align with current BUCKET_SECONDS setting
+      if (b.startEpoch % BUCKET_SECONDS != 0) continue;
+      // Load floats directly from CSV
       b.avgWind = parseFloatOrNan(parts[2]);
       b.maxWind = parseFloatOrNan(parts[3]);
       b.avgTempC = parseFloatOrNan(parts[4]);
@@ -479,9 +492,14 @@ void pushBucketSample(const BucketSample& b) {
 }
 
 static void accumulateTodayFromBucket(const BucketSample& b) {
-  gTodaySumOfBucketAvgs += b.avgWind;
-  gTodayBucketCount++;
-  if (b.maxWind > gTodayMax) gTodayMax = b.maxWind;
+  // Use full precision floats for daily summary
+  if (isfinite(b.avgWind)) {
+    gTodaySumOfBucketAvgs += b.avgWind;
+    gTodayBucketCount++;
+  }
+  if (isfinite(b.maxWind)) {
+    if (b.maxWind > gTodayMax) gTodayMax = b.maxWind;
+  }
   if (isfinite(b.avgTempC)) {
     if (!isfinite(gTodayTempMin) || b.avgTempC < gTodayTempMin) gTodayTempMin = b.avgTempC;
     if (!isfinite(gTodayTempMax) || b.avgTempC > gTodayTempMax) gTodayTempMax = b.avgTempC;
@@ -578,17 +596,19 @@ static void computeBucketSample(BucketSample& b, time_t bucketStart) {
     b.avgPressHpa = NAN;
   }
 
+  // Wind
+  float avgWindMs = 0.0f;
   if (gBucketPulseElapsedMs > 0) {
     float ppsAvg = (float)gBucketPulseCount * 1000.0f / (float)gBucketPulseElapsedMs;
-    b.avgWind = ppsAvg * PPS_TO_MS;
+    avgWindMs = ppsAvg * PPS_TO_MS;
   } else if (gBucketSamples > 0) {
-    b.avgWind = gBucketWindSum / (float)gBucketSamples;
-  } else {
-    b.avgWind = 0.0f;
+    avgWindMs = gBucketWindSum / (float)gBucketSamples;
   }
+  b.avgWind = avgWindMs;
 
-  b.maxWind = gBucketWindMax1;
-  if (b.maxWind < b.avgWind) b.maxWind = b.avgWind;
+  float maxWindMs = gBucketWindMax1;
+  if (maxWindMs < avgWindMs) maxWindMs = avgWindMs;
+  b.maxWind = maxWindMs;
 }
 
 void loadDaySummariesFromSD(time_t nowEpoch) {
@@ -881,7 +901,8 @@ void handleApiFiles() {
         if (!first) out += ",";
         first = false;
         out += "{";
-        out += "\"path\":\"" + name + "\",";
+        // Include full path with /data/ prefix
+        out += "\"path\":\"" + base + "/" + name + "\",";
         out += "\"size\":" + String((uint32_t)f.size());
         out += "}";
       }
@@ -1118,6 +1139,13 @@ void handleApiHelp() {
   server.send_P(200, "text/html", API_HELP_HTML);
 }
 
+void handleRootJs() {
+  String js = String(ROOT_JS);
+  js.replace("{{FILES_PER_PAGE}}", String(FILES_PER_PAGE));
+  js.replace("{{MAX_PLOT_POINTS}}", String(MAX_PLOT_POINTS));
+  server.send(200, "application/javascript", js);
+}
+
 void handleApiClearData() {
   String pw = server.arg("pw");
   bool rateLimited = false;
@@ -1195,7 +1223,9 @@ void handleApiNow() {
   out += "\"sd_ok\":" + String(gSdOk ? "true" : "false") + ",";
   out += "\"uptime_ms\":" + String((uint32_t)millis()) + ",";
   out += "\"retention_days\":" + String(RETENTION_DAYS) + ",";
-  out += "\"wifi_rssi\":" + String(WiFi.RSSI());
+  out += "\"wifi_rssi\":" + String(WiFi.RSSI()) + ",";
+  out += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
+  out += "\"heap_size\":" + String(ESP.getHeapSize());
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -1205,22 +1235,70 @@ static inline String numOrNull(float v, int digits) {
 }
 
 static String buildBucketJson(const BucketSample& b) {
-  String out = "{";
-  out += "\"startEpoch\":";
+  // Compact JSON format - full precision floats, shorter keys
+  float avg_wind = (b.avgWind != 255) ? ((float)b.avgWind / 2.0f) : NAN;
+  float max_wind = (b.maxWind != 255) ? ((float)b.maxWind / 2.0f) : NAN;
+  float temp_c = (b.avgTempC != -128) ? (float)b.avgTempC : NAN;
+  float hum_rh = (b.avgHumRH != 255) ? (float)b.avgHumRH : NAN;
+  float press_hpa = (b.avgPressHpa != -128) ? (1000.0f + (float)b.avgPressHpa) : NAN;
+
+  // Skip buckets with no valid sensor data
+  if (!isfinite(avg_wind) && !isfinite(max_wind) &&
+      !isfinite(temp_c) && !isfinite(hum_rh) && !isfinite(press_hpa)) {
+    return "";
+  }
+
+  String out = "{\"t\":";
   out += String((uint32_t)b.startEpoch);
-  out += ",\"avgWind\":";
-  out += numOrNull(b.avgWind, 3);
-  out += ",\"maxWind\":";
-  out += numOrNull(b.maxWind, 3);
-  out += ",\"samples\":";
+  out += ",\"w\":{\"a\":";
+  out += numOrNull(avg_wind, 3);
+  out += ",\"m\":";
+  out += numOrNull(max_wind, 3);
+  out += ",\"s\":";
   out += String(b.samples);
-  out += ",\"avgTempC\":";
-  out += numOrNull(b.avgTempC, 2);
-  out += ",\"avgHumRH\":";
-  out += numOrNull(b.avgHumRH, 2);
-  out += ",\"avgPressHpa\":";
-  out += numOrNull(b.avgPressHpa, 2);
+  out += "},\"T\":";
+  out += numOrNull(temp_c, 2);
+  out += ",\"H\":";
+  out += numOrNull(hum_rh, 2);
+  out += ",\"P\":";
+  out += numOrNull(press_hpa, 2);
   out += "}";
+  return out;
+}
+
+static String buildBucketJsonCompact(const BucketSample& b) {
+  // Compact format for internal UI - array format with full precision
+  // Format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa]
+  if (!timeIsValid(b.startEpoch)) return "";
+
+  // Use full precision floats directly
+  float avg_wind = b.avgWind;
+  float max_wind = b.maxWind;
+  float temp_c = b.avgTempC;
+  float hum_rh = b.avgHumRH;
+  float press_hpa = b.avgPressHpa;
+
+  // Skip buckets with no valid sensor data
+  if (!isfinite(avg_wind) && !isfinite(max_wind) &&
+      !isfinite(temp_c) && !isfinite(hum_rh) && !isfinite(press_hpa)) {
+    return "";
+  }
+
+  String out = "[";
+  out += String((uint32_t)b.startEpoch);
+  out += ",";
+  out += numOrNull(avg_wind, 3);
+  out += ",";
+  out += numOrNull(max_wind, 3);
+  out += ",";
+  out += String(b.samples);
+  out += ",";
+  out += numOrNull(temp_c, 2);
+  out += ",";
+  out += numOrNull(hum_rh, 2);
+  out += ",";
+  out += numOrNull(press_hpa, 2);
+  out += "]";
   return out;
 }
 
@@ -1228,35 +1306,45 @@ void handleApiBuckets() {
   time_t nowE = epochNow();
   time_t todayMidnight = localMidnight(nowE);
 
-  String out;
-  out.reserve((size_t)(BUCKETS_24H * 110));
-  out += "{\"now_epoch\":";
-  out += String((uint32_t)nowE);
-  out += ",\"bucket_seconds\":";
-  out += String(BUCKET_SECONDS);
-  out += ",\"buckets\":[";
+  // Use chunked transfer with batching for performance
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+
+  String header = "{\"now_epoch\":";
+  header += String((uint32_t)nowE);
+  header += ",\"bucket_seconds\":";
+  header += String(BUCKET_SECONDS);
+  header += ",\"buckets\":[";
+  server.sendContent(header);
 
   bool first = true;
+  String batch = "";
+  batch.reserve(12288); // Reserve 12KB for batching
 
   // Add finalized buckets from today only
   for (int i = 0; i < BUCKETS_24H; i++) {
     int idx = (gBucketWrite + i) % BUCKETS_24H;
     const BucketSample& b = gBuckets[idx];
     if (!timeIsValid(b.startEpoch)) continue;
-    if (b.startEpoch < todayMidnight) continue; // Skip buckets before midnight
+    if (b.startEpoch < todayMidnight) continue;
 
     String bucketJson = buildBucketJson(b);
     if (bucketJson.length() > 0) {
-      if (!first) out += ",";
+      if (!first) batch += ",";
       first = false;
-      out += bucketJson;
+      batch += bucketJson;
+
+      // Send batch when it reaches 10KB to avoid blocking too long
+      if (batch.length() > 10000) {
+        server.sendContent(batch);
+        batch = "";
+      }
     }
   }
 
   // Always append the current in-progress bucket
   BucketSample cur = currentBucketSnapshot();
   if (timeIsValid(cur.startEpoch) && cur.startEpoch >= todayMidnight) {
-    // Check if current bucket was already finalized and included
     bool alreadyFinalized = false;
     int lastIdx = (gBucketWrite - 1 + BUCKETS_24H) % BUCKETS_24H;
     if (timeIsValid(gBuckets[lastIdx].startEpoch) &&
@@ -1265,13 +1353,88 @@ void handleApiBuckets() {
     }
 
     if (!alreadyFinalized) {
-      if (!first) out += ",";
-      out += buildBucketJson(cur);
+      String bucketJson = buildBucketJson(cur);
+      if (bucketJson.length() > 0) {
+        if (!first) batch += ",";
+        batch += bucketJson;
+      }
     }
   }
 
-  out += "]}";
-  server.send(200, "application/json", out);
+  // Send remaining batch
+  if (batch.length() > 0) {
+    server.sendContent(batch);
+  }
+
+  server.sendContent("]}");
+}
+
+void handleApiBucketsUi() {
+  // Compact format for internal UI use - saves bandwidth
+  time_t nowE = epochNow();
+  time_t todayMidnight = localMidnight(nowE);
+
+  // Use chunked transfer with batching for performance
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+
+  String header = "{\"now_epoch\":";
+  header += String((uint32_t)nowE);
+  header += ",\"bucket_seconds\":";
+  header += String(BUCKET_SECONDS);
+  header += ",\"buckets\":[";
+  server.sendContent(header);
+
+  bool first = true;
+  String batch = "";
+  batch.reserve(12288); // Reserve 12KB for batching
+
+  // Add finalized buckets from today only
+  for (int i = 0; i < BUCKETS_24H; i++) {
+    int idx = (gBucketWrite + i) % BUCKETS_24H;
+    const BucketSample& b = gBuckets[idx];
+    if (!timeIsValid(b.startEpoch)) continue;
+    if (b.startEpoch < todayMidnight) continue;
+
+    String bucketJson = buildBucketJsonCompact(b);
+    if (bucketJson.length() > 0) {
+      if (!first) batch += ",";
+      first = false;
+      batch += bucketJson;
+
+      // Send batch when it reaches 10KB to avoid blocking too long
+      if (batch.length() > 10000) {
+        server.sendContent(batch);
+        batch = "";
+      }
+    }
+  }
+
+  // Always append the current in-progress bucket
+  BucketSample cur = currentBucketSnapshot();
+  if (timeIsValid(cur.startEpoch) && cur.startEpoch >= todayMidnight) {
+    bool alreadyFinalized = false;
+    int lastIdx = (gBucketWrite - 1 + BUCKETS_24H) % BUCKETS_24H;
+    if (timeIsValid(gBuckets[lastIdx].startEpoch) &&
+        gBuckets[lastIdx].startEpoch == cur.startEpoch) {
+      alreadyFinalized = true;
+    }
+
+    if (!alreadyFinalized) {
+      String bucketJson = buildBucketJsonCompact(cur);
+      if (bucketJson.length() > 0) {
+        if (!first) batch += ",";
+        batch += bucketJson;
+      }
+    }
+  }
+
+  // Send remaining batch
+  if (batch.length() > 0) {
+    server.sendContent(batch);
+  }
+
+  server.sendContent("]}");
 }
 
 void handleApiDays() {
@@ -1456,14 +1619,12 @@ static void updateWindPPS(uint32_t msNow) {
 
   gBucketPulseCount += delta;
   gBucketPulseElapsedMs += elapsedMs;
-  gLastPpsMillis = msNow;
-}
 
-static void sampleWindIntoBucket(uint32_t msNow) {
-  if (msNow - gLastWindSampleMillis < NOW_SAMPLE_MS) return;
+  // Sample wind into bucket immediately after calculation
   gBucketWindSum += gNowWindMS;
   gBucketSamples++;
-  gLastWindSampleMillis += NOW_SAMPLE_MS;
+
+  gLastPpsMillis = msNow;
 }
 
 static void pollBMEIfNeeded(uint32_t msNow) {
@@ -1567,13 +1728,14 @@ void setup() {
   startBucketAt(aligned);
 
   gLastPpsMillis = millis();
-  gLastWindSampleMillis = millis();
   gLastBmePollMillis = millis();
 
   // routes
   server.on("/", handleRoot);
+  server.on("/root.js", handleRootJs);
   server.on("/api/now", handleApiNow);
   server.on("/api/buckets", handleApiBuckets);
+  server.on("/api/buckets_ui", handleApiBucketsUi);  // Compact format for internal UI
   server.on("/api/days", handleApiDays);
   server.on("/api_help", handleApiHelp);
   server.on("/api/clear_data", HTTP_POST, handleApiClearData);
@@ -1607,7 +1769,6 @@ void loop() {
   uint32_t msNow = millis();
 
   updateWindPPS(msNow);
-  sampleWindIntoBucket(msNow);
   pollBMEIfNeeded(msNow);
 
   time_t nowE = epochNow();

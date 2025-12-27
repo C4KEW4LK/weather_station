@@ -45,22 +45,37 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
 
   <div class="card">
     <div><code>/api/buckets</code></div>
-    <div class="muted">Last 24h bucketed data (<code>bucket_seconds</code> + array of buckets).</div>
+    <div class="muted">Last 24h bucketed data. Compact JSON keys, full precision floats. Chunked transfer.</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "now_epoch": 1734492345,
   "bucket_seconds": 60,
   "buckets": [
     {
-      "startEpoch": 1734489600,
-      "avgWind": 0.8,
-      "maxWind": 2.1,
-      "samples": 12,
-      "avgTempC": 22.9,
-      "avgHumRH": 56.0,
-      "avgPressHpa": 1012.1
+      "t": 1734489600,
+      "w": {"a": 0.8, "m": 2.1, "s": 12},
+      "T": 22.9,
+      "H": 56.0,
+      "P": 1012.1
     }
   ]
-}</code></pre>
+}
+Keys: t=time, w.a=avgWind, w.m=maxWind, w.s=samples, T=temp, H=humidity, P=pressure</code></pre>
+  </div>
+
+  <div class="card">
+    <div><code>/api/buckets_ui</code></div>
+    <div class="muted">Compact array format (no keys). Full precision floats. Chunked with batching.<br>
+    Array: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa]</div>
+    <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
+  "now_epoch": 1734492345,
+  "bucket_seconds": 60,
+  "buckets": [
+    [1734489600, 0.8, 2.1, 12, 22.9, 56.0, 1012.1]
+  ]
+}
+Array indices:
+[0]=epoch, [1]=avgWind(m/s), [2]=maxWind(m/s), [3]=samples,
+[4]=temp(°C), [5]=humidity(%), [6]=pressure(hPa)</code></pre>
   </div>
 
   <div class="card">
