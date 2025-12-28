@@ -8,7 +8,7 @@
 
   Logging:
   - Bucket-aligned logs (configurable duration, NTP time)
-  - /data/YYYYMMDD.csv (daily, retained for RETENTION_DAYS)
+  - /data/YYYYMMDD.csv (daily, retained for LogConfig::RETENTION_DAYS)
 
   Downloads:
   - List:     /api/files?dir=data
@@ -17,7 +17,7 @@
 
   Notes:
   - GPIO0 is a boot strap pin on ESP32-C3; ensure sensor doesn't hold it LOW at boot.
-  - SD pin mapping varies by board/module; set SD_CS_PIN and optionally SPI.begin(...) pins.
+  - SD pin mapping varies by board/module; set SDConfig::CS_PIN and optionally SPI.begin(...) pins.
 */
 
 #include <WiFi.h>
@@ -35,8 +35,8 @@
 
 #include <vector>
 #include <algorithm>
-#include "root_page.h"
-#include "root_page_js_mini.h"
+#include "config.h"
+#include "upload_page.h"
 #include "api_help_page.h"
 
 // ------------------- FORWARD DECLARATIONS -------------------
@@ -47,43 +47,6 @@ void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay);
 bool loadDaySummariesCache();
 void pushBucketSample(const BucketSample& b);
 void rebuildTodayAggregates();
-
-// ------------------- CONFIG -------------------
-
-// Retention for /data daily files
-static constexpr int RETENTION_DAYS = 3600;   // delete daily file older than this (in days)
-
-// Wind
-static constexpr int   PULSE_PIN = 3;                 // GPIO3
-static constexpr float PPS_TO_MS = 1.75f / 20.0f;     // 0.0875 m/s per pps
-static constexpr uint32_t PPS_WINDOW_MS = 1000;       // Calculate wind speed every 1 second
-
-// Buckets for UI chart (RAM only)
-static constexpr int BUCKET_SECONDS = 60;             // change this for different bucket durations
-static constexpr int BUCKETS_24H  = 24 * 60 * 60 / BUCKET_SECONDS;
-static constexpr int DAYS_HISTORY = 30;               // RAM daily summaries shown in UI
-static_assert((86400 % BUCKET_SECONDS) == 0, "BUCKET_SECONDS must divide evenly into 24h");
-
-// BME280
-static constexpr uint32_t BME_POLL_MS = 2000;
-static constexpr bool     BME_ENABLE  = true;
-static constexpr uint8_t  BME_I2C_ADDR = 0x76;        // will also try 0x77
-
-// SD
-static constexpr bool SD_ENABLE = true;
-static constexpr int  SD_CS_PIN = 20;                // <-- CHANGE for your wiring/board
-
-// NTP
-static const char* NTP1 = "pool.ntp.org";
-static const char* NTP2 = "time.google.com";
-static const char* NTP3 = "time.windows.com";
-
-// POSIX TZ string for Sydney with DST (UTC+10 standard, UTC+11 daylight)
-static const char* TZ_AU_SYDNEY = "AEST-10AEDT-11,M10.1.0/02:00:00,M4.1.0/03:00:00";
-
-// Web UI
-static constexpr int FILES_PER_PAGE = 30;  // Number of daily files to show per page in web UI
-static constexpr int MAX_PLOT_POINTS = 500;  // Maximum number of points to display on plots
 
 // ------------------- DATA -------------------
 
@@ -112,10 +75,10 @@ struct DaySummary {
   float maxPress;
 };
 
-static BucketSample gBuckets[BUCKETS_24H];
+static BucketSample gBuckets[LogConfig::BUCKETS_24H];
 static int gBucketWrite = 0;
 
-static DaySummary gDays[DAYS_HISTORY];
+static DaySummary gDays[LogConfig::DAYS_HISTORY];
 static int gDayWrite = 0;
 static uint32_t gDaysCount = 0;
 
@@ -123,7 +86,6 @@ static uint32_t gDaysCount = 0;
 static volatile uint32_t gPulseCount = 0;
 static volatile uint32_t gLastPulseMicros = 0;
 static float gNowWindMS = 0.0f;
-static float gNowWindMaxSinceBoot = 0.0f;
 
 // timing / bucket accumulators
 static uint32_t gLastPpsMillis = 0;
@@ -236,7 +198,7 @@ static bool verifyPassword(const String& pw, bool& rateLimited) {
     rateLimited = true;
     return false;
   }
-  if (pw == "yesplease") {
+  if (pw == API_PASSWORD) {
     gPwAttempts = 0;
     gPwWindowStart = epochNow();
     return true;
@@ -250,13 +212,13 @@ time_t floorToBucketBoundaryLocal(time_t nowEpoch) {
   struct tm tmLocal;
   localtime_r(&nowEpoch, &tmLocal);
   tmLocal.tm_sec = 0;
-  int bucketMinutes = BUCKET_SECONDS / 60;
-  int bucketSeconds = BUCKET_SECONDS % 60;
+  int bucketMinutes = LogConfig::BUCKET_SECONDS / 60;
+  int bucketSeconds = LogConfig::BUCKET_SECONDS % 60;
   if (bucketMinutes > 0) {
     tmLocal.tm_min = (tmLocal.tm_min / bucketMinutes) * bucketMinutes;
     tmLocal.tm_sec = (bucketSeconds > 0) ? (tmLocal.tm_sec / bucketSeconds) * bucketSeconds : 0;
   } else {
-    tmLocal.tm_sec = (tmLocal.tm_sec / BUCKET_SECONDS) * BUCKET_SECONDS;
+    tmLocal.tm_sec = (tmLocal.tm_sec / LogConfig::BUCKET_SECONDS) * LogConfig::BUCKET_SECONDS;
   }
   return mktime(&tmLocal);
 }
@@ -311,7 +273,10 @@ bool appendLine(const String& path, const String& line, const String& headerIfNe
 }
 
 void deleteOldDailyFileIfNeeded(time_t todayMidnightLocal) {
-  time_t oldMidnight = subtractDaysLocalMidnight(todayMidnightLocal, RETENTION_DAYS + 1);
+  // If LogConfig::RETENTION_DAYS is 0, never delete files
+  if (LogConfig::RETENTION_DAYS == 0) return;
+
+  time_t oldMidnight = subtractDaysLocalMidnight(todayMidnightLocal, LogConfig::RETENTION_DAYS + 1);
   String ymd = ymdString(oldMidnight);
   String dataPath = String("/data/") + ymd + ".csv";
   if (gSdOk && SD.exists(dataPath.c_str())) SD.remove(dataPath.c_str());
@@ -400,7 +365,7 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
 
   time_t cutoff = nowEpoch - 86400;
   std::vector<BucketSample> loaded;
-  loaded.reserve(BUCKETS_24H);
+  loaded.reserve(LogConfig::BUCKETS_24H);
 
   auto loadFile = [&](time_t dayMidnightLocal) {
     String path = String("/data/") + ymdString(dayMidnightLocal) + ".csv";
@@ -417,8 +382,8 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
       BucketSample b{};
       b.startEpoch = (time_t)parts[1].toInt();
       if (!timeIsValid(b.startEpoch) || b.startEpoch < cutoff) continue;
-      // Skip buckets that don't align with current BUCKET_SECONDS setting
-      if (b.startEpoch % BUCKET_SECONDS != 0) continue;
+      // Skip buckets that don't align with current LogConfig::BUCKET_SECONDS setting
+      if (b.startEpoch % LogConfig::BUCKET_SECONDS != 0) continue;
       // Load floats directly from CSV
       b.avgWind = parseFloatOrNan(parts[2]);
       b.maxWind = parseFloatOrNan(parts[3]);
@@ -441,8 +406,8 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
     return a.startEpoch < b.startEpoch;
   });
 
-  if (loaded.size() > (size_t)BUCKETS_24H) {
-    loaded.erase(loaded.begin(), loaded.begin() + (loaded.size() - BUCKETS_24H));
+  if (loaded.size() > (size_t)LogConfig::BUCKETS_24H) {
+    loaded.erase(loaded.begin(), loaded.begin() + (loaded.size() - LogConfig::BUCKETS_24H));
   }
 
   memset(gBuckets, 0, sizeof(gBuckets));
@@ -456,7 +421,7 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
 
 // ------------------- BME280 -------------------
 void pollBME() {
-  if (!BME_ENABLE || !gBmeOk) return;
+  if (!BME280Config::ENABLE || !gBmeOk) return;
   gTempC = bme.readTemperature();
   gPressurePa = bme.readPressure();
   gHumRH = bme.readHumidity();
@@ -488,7 +453,7 @@ void startBucketAt(time_t bucketStart) {
 
 void pushBucketSample(const BucketSample& b) {
   gBuckets[gBucketWrite] = b;
-  gBucketWrite = (gBucketWrite + 1) % BUCKETS_24H;
+  gBucketWrite = (gBucketWrite + 1) % LogConfig::BUCKETS_24H;
 }
 
 static void accumulateTodayFromBucket(const BucketSample& b) {
@@ -537,8 +502,8 @@ void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp
   d.maxPress = maxPress;
 
   gDays[gDayWrite] = d;
-  gDayWrite = (gDayWrite + 1) % DAYS_HISTORY;
-  if (gDaysCount < (uint32_t)DAYS_HISTORY) gDaysCount++;
+  gDayWrite = (gDayWrite + 1) % LogConfig::DAYS_HISTORY;
+  if (gDaysCount < (uint32_t)LogConfig::DAYS_HISTORY) gDaysCount++;
 }
 
 void maybeRolloverDay(time_t nowEpoch) {
@@ -600,7 +565,7 @@ static void computeBucketSample(BucketSample& b, time_t bucketStart) {
   float avgWindMs = 0.0f;
   if (gBucketPulseElapsedMs > 0) {
     float ppsAvg = (float)gBucketPulseCount * 1000.0f / (float)gBucketPulseElapsedMs;
-    avgWindMs = ppsAvg * PPS_TO_MS;
+    avgWindMs = ppsAvg * WindConfig::PPS_TO_MS;
   } else if (gBucketSamples > 0) {
     avgWindMs = gBucketWindSum / (float)gBucketSamples;
   }
@@ -698,8 +663,8 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
       }
     }
   }
-  // push into ring (keep last DAYS_HISTORY)
-  int startIdx = entryCount > DAYS_HISTORY ? entryCount - DAYS_HISTORY : 0;
+  // push into ring (keep last LogConfig::DAYS_HISTORY)
+  int startIdx = entryCount > LogConfig::DAYS_HISTORY ? entryCount - LogConfig::DAYS_HISTORY : 0;
   for (int i=startIdx; i<entryCount; i++){
     DayAgg& a = entries[i].agg;
     if (!timeIsValid(entries[i].day)) continue;
@@ -725,7 +690,7 @@ void finalizeCurrentBucket(time_t bucketStart) {
 void rebuildTodayAggregates() {
   clearTodayAggregates();
   if (!timeIsValid(gTodayMidnightEpoch)) return;
-  for (int i = 0; i < BUCKETS_24H; i++) {
+  for (int i = 0; i < LogConfig::BUCKETS_24H; i++) {
     const BucketSample& b = gBuckets[i];
     if (!timeIsValid(b.startEpoch)) continue;
     if (b.startEpoch < gTodayMidnightEpoch) continue;
@@ -997,7 +962,8 @@ void handleDownloadZip() {
 
   int days = server.arg("days").toInt();
   if (days <= 0) days = 7;
-  if (days > RETENTION_DAYS) days = RETENTION_DAYS;
+  // If LogConfig::RETENTION_DAYS is 0 (never delete), allow any number of days
+  if (LogConfig::RETENTION_DAYS > 0 && days > LogConfig::RETENTION_DAYS) days = LogConfig::RETENTION_DAYS;
   if (days < 1) days = 1;
 
   auto entries = buildLastNDaysList(days);
@@ -1129,10 +1095,46 @@ void handleDownloadZip() {
 // ------------------- WEB UI + API -------------------
 
 void handleRoot() {
-  String html = String(ROOT_HTML);
-  html.replace("{{FILES_PER_PAGE}}", String(FILES_PER_PAGE));
-  html.replace("{{MAX_PLOT_POINTS}}", String(MAX_PLOT_POINTS));
-  server.send(200, "text/html", html);
+  if (gSdOk && SD.exists("/web/index.html")) {
+    File f = SD.open("/web/index.html", FILE_READ);
+    if (f) {
+      server.streamFile(f, "text/html");
+      f.close();
+      return;
+    }
+  }
+
+  const char* fallbackHtml = R"HTML(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Weather Station - Setup Required</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; max-width: 600px; }
+    h1 { color: #333; }
+    a { color: #0275d8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    ul { line-height: 1.8; }
+  </style>
+</head>
+<body>
+  <h1>Weather Station - Setup Required</h1>
+  <p>Web interface files not found on SD card.</p>
+  <ul>
+    <li><a href="/upload">Upload web files (index.html, app.js)</a></li>
+    <li><a href="/api/now">View current sensor data (JSON)</a></li>
+    <li><a href="/api/buckets">View bucket data (JSON)</a></li>
+    <li><a href="/api/days">View daily summaries (JSON)</a></li>
+    <li><a href="/api/config">View configuration (JSON)</a></li>
+    <li><a href="/api_help">API documentation</a></li>
+  </ul>
+</body>
+</html>
+)HTML";
+
+  server.send(200, "text/html", fallbackHtml);
 }
 
 void handleApiHelp() {
@@ -1140,10 +1142,16 @@ void handleApiHelp() {
 }
 
 void handleRootJs() {
-  String js = String(ROOT_JS);
-  js.replace("{{FILES_PER_PAGE}}", String(FILES_PER_PAGE));
-  js.replace("{{MAX_PLOT_POINTS}}", String(MAX_PLOT_POINTS));
-  server.send(200, "application/javascript", js);
+  if (gSdOk && SD.exists("/web/app.js")) {
+    File f = SD.open("/web/app.js", FILE_READ);
+    if (f) {
+      server.streamFile(f, "application/javascript");
+      f.close();
+      return;
+    }
+  }
+
+  server.send(200, "application/javascript", "console.log('app.js not found on SD card');");
 }
 
 void handleApiClearData() {
@@ -1155,7 +1163,7 @@ void handleApiClearData() {
                             : "{\"ok\":false,\"error\":\"unauthorized\"}");
     return;
   }
-  if (!SD_ENABLE || !gSdOk) {
+  if (!SDConfig::ENABLE || !gSdOk) {
     server.send(503, "application/json", "{\"ok\":false,\"error\":\"sd_not_available\"}");
     return;
   }
@@ -1203,7 +1211,7 @@ void handleApiReboot() {
 }
 
 void handleApiNow() {
-  float pps = (PPS_TO_MS > 0.0f) ? (gNowWindMS / PPS_TO_MS) : 0.0f;
+  float pps = (WindConfig::PPS_TO_MS > 0.0f) ? (gNowWindMS / WindConfig::PPS_TO_MS) : 0.0f;
   time_t nowE = epochNow();
   float press_hpa = isfinite(gPressurePa) ? (gPressurePa / 100.0f) : NAN;
 
@@ -1213,7 +1221,6 @@ void handleApiNow() {
 
   out += "\"wind_pps\":" + (isfinite(pps) ? String(pps, 3) : String("null")) + ",";
   out += "\"wind_ms\":" + (isfinite(gNowWindMS) ? String(gNowWindMS, 3) : String("null")) + ",";
-  out += "\"wind_max_since_boot\":" + (isfinite(gNowWindMaxSinceBoot) ? String(gNowWindMaxSinceBoot, 3) : String("null")) + ",";
 
   out += "\"bme280_ok\":" + String(gBmeOk ? "true" : "false") + ",";
   out += "\"temp_c\":" + (isfinite(gTempC) ? String(gTempC, 2) : String("null")) + ",";
@@ -1222,7 +1229,7 @@ void handleApiNow() {
 
   out += "\"sd_ok\":" + String(gSdOk ? "true" : "false") + ",";
   out += "\"uptime_ms\":" + String((uint32_t)millis()) + ",";
-  out += "\"retention_days\":" + String(RETENTION_DAYS) + ",";
+  out += "\"retention_days\":" + String(LogConfig::RETENTION_DAYS) + ",";
   out += "\"wifi_rssi\":" + String(WiFi.RSSI()) + ",";
   out += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
   out += "\"heap_size\":" + String(ESP.getHeapSize());
@@ -1313,7 +1320,7 @@ void handleApiBuckets() {
   String header = "{\"now_epoch\":";
   header += String((uint32_t)nowE);
   header += ",\"bucket_seconds\":";
-  header += String(BUCKET_SECONDS);
+  header += String(LogConfig::BUCKET_SECONDS);
   header += ",\"buckets\":[";
   server.sendContent(header);
 
@@ -1322,8 +1329,8 @@ void handleApiBuckets() {
   batch.reserve(12288); // Reserve 12KB for batching
 
   // Add finalized buckets from today only
-  for (int i = 0; i < BUCKETS_24H; i++) {
-    int idx = (gBucketWrite + i) % BUCKETS_24H;
+  for (int i = 0; i < LogConfig::BUCKETS_24H; i++) {
+    int idx = (gBucketWrite + i) % LogConfig::BUCKETS_24H;
     const BucketSample& b = gBuckets[idx];
     if (!timeIsValid(b.startEpoch)) continue;
     if (b.startEpoch < todayMidnight) continue;
@@ -1346,7 +1353,7 @@ void handleApiBuckets() {
   BucketSample cur = currentBucketSnapshot();
   if (timeIsValid(cur.startEpoch) && cur.startEpoch >= todayMidnight) {
     bool alreadyFinalized = false;
-    int lastIdx = (gBucketWrite - 1 + BUCKETS_24H) % BUCKETS_24H;
+    int lastIdx = (gBucketWrite - 1 + LogConfig::BUCKETS_24H) % LogConfig::BUCKETS_24H;
     if (timeIsValid(gBuckets[lastIdx].startEpoch) &&
         gBuckets[lastIdx].startEpoch == cur.startEpoch) {
       alreadyFinalized = true;
@@ -1381,7 +1388,7 @@ void handleApiBucketsUi() {
   String header = "{\"now_epoch\":";
   header += String((uint32_t)nowE);
   header += ",\"bucket_seconds\":";
-  header += String(BUCKET_SECONDS);
+  header += String(LogConfig::BUCKET_SECONDS);
   header += ",\"buckets\":[";
   server.sendContent(header);
 
@@ -1390,8 +1397,8 @@ void handleApiBucketsUi() {
   batch.reserve(12288); // Reserve 12KB for batching
 
   // Add finalized buckets from today only
-  for (int i = 0; i < BUCKETS_24H; i++) {
-    int idx = (gBucketWrite + i) % BUCKETS_24H;
+  for (int i = 0; i < LogConfig::BUCKETS_24H; i++) {
+    int idx = (gBucketWrite + i) % LogConfig::BUCKETS_24H;
     const BucketSample& b = gBuckets[idx];
     if (!timeIsValid(b.startEpoch)) continue;
     if (b.startEpoch < todayMidnight) continue;
@@ -1414,7 +1421,7 @@ void handleApiBucketsUi() {
   BucketSample cur = currentBucketSnapshot();
   if (timeIsValid(cur.startEpoch) && cur.startEpoch >= todayMidnight) {
     bool alreadyFinalized = false;
-    int lastIdx = (gBucketWrite - 1 + BUCKETS_24H) % BUCKETS_24H;
+    int lastIdx = (gBucketWrite - 1 + LogConfig::BUCKETS_24H) % LogConfig::BUCKETS_24H;
     if (timeIsValid(gBuckets[lastIdx].startEpoch) &&
         gBuckets[lastIdx].startEpoch == cur.startEpoch) {
       alreadyFinalized = true;
@@ -1466,8 +1473,8 @@ void handleApiDays() {
   uint32_t count = gDaysCount;
   // Loop backwards from most recent to oldest
   for (int i = (int)count - 1; i >= 0; i--) {
-    int startIdx = (gDayWrite - (int)gDaysCount + DAYS_HISTORY) % DAYS_HISTORY;
-    int idx = (startIdx + i) % DAYS_HISTORY;
+    int startIdx = (gDayWrite - (int)gDaysCount + LogConfig::DAYS_HISTORY) % LogConfig::DAYS_HISTORY;
+    int idx = (startIdx + i) % LogConfig::DAYS_HISTORY;
     const DaySummary& d = gDays[idx];
     if (!timeIsValid(d.dayStartEpoch)) continue;
     if (!firstOut) out += ",";
@@ -1490,6 +1497,187 @@ void handleApiDays() {
   }
   out += "]}";
   server.send(200, "application/json", out);
+}
+
+void handleApiConfig() {
+  String out = "{";
+
+  // Plots configuration
+  out += "\"plots\":[";
+  for (int i = 0; i < PLOTS_COUNT; i++) {
+    if (i > 0) out += ",";
+    const PlotConfig& p = PLOTS[i];
+    out += "{";
+    out += "\"id\":\"" + String(p.id) + "\",";
+    out += "\"title\":\"" + String(p.title) + "\",";
+    out += "\"unit\":\"" + String(p.unit) + "\",";
+    out += "\"conversionFactor\":" + String(p.conversionFactor, 3) + ",";
+    out += "\"series\":[";
+    for (int j = 0; j < p.seriesCount; j++) {
+      if (j > 0) out += ",";
+      const PlotSeries& s = p.series[j];
+      if (s.field) {
+        out += "{";
+        out += "\"field\":\"" + String(s.field) + "\",";
+        out += "\"color\":\"" + String(s.color) + "\",";
+        out += "\"label\":\"" + String(s.label) + "\"";
+        out += "}";
+      }
+    }
+    out += "]";
+    out += "}";
+  }
+  out += "],";
+
+  // Table configuration
+  out += "\"tableColumns\":[";
+  for (int i = 0; i < TABLE_COLUMNS_COUNT; i++) {
+    if (i > 0) out += ",";
+    const TableColumn& c = TABLE_COLUMNS[i];
+    out += "{";
+    out += "\"field\":\"" + String(c.field) + "\",";
+    out += "\"label\":\"" + String(c.label) + "\",";
+    out += "\"unit\":\"" + String(c.unit) + "\",";
+    out += "\"conversionFactor\":" + String(c.conversionFactor, 3) + ",";
+    out += "\"decimals\":" + String(c.decimals) + ",";
+    out += "\"bgColor\":\"" + String(c.bgColor) + "\"";
+    out += "}";
+  }
+  out += "],";
+
+  // UI parameters
+  out += "\"filesPerPage\":" + String(UIConfig::FILES_PER_PAGE) + ",";
+  out += "\"maxPlotPoints\":" + String(UIConfig::MAX_PLOT_POINTS);
+
+  out += "}";
+  server.send(200, "application/json", out);
+}
+
+void handleUploadPage() {
+  server.send_P(200, "text/html", UPLOAD_HTML);
+}
+
+static File gUploadFile;
+static bool gUploadPasswordVerified = false;
+static bool gUploadError = false;
+static String gUploadErrorMsg = "";
+static const char* TEMP_UPLOAD_FILE = "/web/.upload.tmp";
+
+void handleUploadData() {
+  HTTPUpload& upload = server.upload();
+
+  if (upload.status == UPLOAD_FILE_START) {
+    gUploadError = false;
+    gUploadErrorMsg = "";
+    gUploadPasswordVerified = false;
+
+    if (!gSdOk) {
+      gUploadError = true;
+      gUploadErrorMsg = "sd_not_available";
+      return;
+    }
+
+    if (!SD.exists("/web")) {
+      SD.mkdir("/web");
+    }
+
+    // Delete any previous temp file
+    if (SD.exists(TEMP_UPLOAD_FILE)) {
+      SD.remove(TEMP_UPLOAD_FILE);
+    }
+
+    // Save to temporary file first
+    gUploadFile = SD.open(TEMP_UPLOAD_FILE, FILE_WRITE);
+    if (!gUploadFile) {
+      gUploadError = true;
+      gUploadErrorMsg = "failed_to_create_file";
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (gUploadFile && !gUploadError) {
+      gUploadFile.write(upload.buf, upload.currentSize);
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (gUploadFile) {
+      gUploadFile.close();
+    }
+  }
+}
+
+void handleUploadComplete() {
+  // Check for upload errors first
+  if (gUploadError) {
+    // Delete temp file on error
+    if (SD.exists(TEMP_UPLOAD_FILE)) {
+      SD.remove(TEMP_UPLOAD_FILE);
+    }
+
+    int statusCode = 500;
+    if (gUploadErrorMsg == "unauthorized") statusCode = 401;
+    else if (gUploadErrorMsg == "rate_limited") statusCode = 429;
+    else if (gUploadErrorMsg == "forbidden_path") statusCode = 403;
+    else if (gUploadErrorMsg == "sd_not_available") statusCode = 503;
+
+    server.send(statusCode, "application/json",
+                "{\"ok\":false,\"error\":\"" + gUploadErrorMsg + "\"}");
+
+    gUploadPasswordVerified = false;
+    gUploadError = false;
+    gUploadErrorMsg = "";
+    return;
+  }
+
+  // Get path and password (now available after multipart parsing)
+  String path = server.arg("path");
+  String pw = server.arg("pw");
+
+  // Validate path
+  if (path.length() == 0) {
+    if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing_path\"}");
+    return;
+  }
+
+  if (!path.startsWith("/web/")) {
+    if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"forbidden_path\"}");
+    return;
+  }
+
+  // Verify password
+  bool rateLimited = false;
+  gUploadPasswordVerified = verifyPassword(pw, rateLimited);
+
+  if (!gUploadPasswordVerified) {
+    // Password failed - delete temp file
+    if (SD.exists(TEMP_UPLOAD_FILE)) {
+      SD.remove(TEMP_UPLOAD_FILE);
+    }
+
+    int statusCode = rateLimited ? 429 : 401;
+    String errorMsg = rateLimited ? "rate_limited" : "unauthorized";
+    server.send(statusCode, "application/json",
+                "{\"ok\":false,\"error\":\"" + errorMsg + "\"}");
+  } else {
+    // Password OK - move temp file to final location
+    // Delete existing file if present
+    if (SD.exists(path.c_str())) {
+      SD.remove(path.c_str());
+    }
+
+    // Rename temp file to final name
+    if (SD.rename(TEMP_UPLOAD_FILE, path.c_str())) {
+      server.send(200, "application/json",
+                  "{\"ok\":true,\"bytes\":" + String(server.upload().totalSize) + "}");
+    } else {
+      // Rename failed - try to delete temp file
+      if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+      server.send(500, "application/json", "{\"ok\":false,\"error\":\"rename_failed\"}");
+    }
+  }
+
+  gUploadPasswordVerified = false;
+  gUploadError = false;
+  gUploadErrorMsg = "";
 }
 
 void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay) {
@@ -1516,9 +1704,9 @@ void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay) {
   };
   if (hasCurDay && curDay) writeRow(*curDay);
   uint32_t count2 = gDaysCount;
-  int startIdx = (gDayWrite - (int)gDaysCount + DAYS_HISTORY) % DAYS_HISTORY;
+  int startIdx = (gDayWrite - (int)gDaysCount + LogConfig::DAYS_HISTORY) % LogConfig::DAYS_HISTORY;
   for (uint32_t i = 0; i < count2; i++) {
-    int idx = (startIdx + (int)i) % DAYS_HISTORY;
+    int idx = (startIdx + (int)i) % LogConfig::DAYS_HISTORY;
     writeRow(gDays[idx]);
   }
   f.close();
@@ -1556,8 +1744,8 @@ bool loadDaySummariesCache() {
     d.minPress = (numParts > 10 && parts[10].length()) ? parts[10].toFloat() : NAN;
     d.maxPress = (numParts > 11 && parts[11].length()) ? parts[11].toFloat() : NAN;
     gDays[gDayWrite] = d;
-    gDayWrite = (gDayWrite + 1) % DAYS_HISTORY;
-    if (gDaysCount < (uint32_t)DAYS_HISTORY) gDaysCount++;
+    gDayWrite = (gDayWrite + 1) % LogConfig::DAYS_HISTORY;
+    if (gDaysCount < (uint32_t)LogConfig::DAYS_HISTORY) gDaysCount++;
   }
   f.close();
   return gDaysCount > 0;
@@ -1566,9 +1754,9 @@ bool loadDaySummariesCache() {
 // ------------------- SETUP HELPERS -------------------
 
 bool syncTimeWithNTP(uint32_t timeoutMs = 20000) {
-  setenv("TZ", TZ_AU_SYDNEY, 1);
+  setenv("TZ", NetworkConfig::TIMEZONE, 1);
   tzset();
-  configTzTime(TZ_AU_SYDNEY, NTP1, NTP2, NTP3);
+  configTzTime(NetworkConfig::TIMEZONE, NetworkConfig::NTP_SERVER_1, NetworkConfig::NTP_SERVER_2, NetworkConfig::NTP_SERVER_3);
 
   uint32_t start = millis();
   while (millis() - start < timeoutMs) {
@@ -1581,12 +1769,12 @@ bool syncTimeWithNTP(uint32_t timeoutMs = 20000) {
 
 void initSD() {
   gSdOk = false;
-  if (!SD_ENABLE) return;
+  if (!SDConfig::ENABLE) return;
 
   // If your board needs explicit SPI pins, do it here, e.g.:
-  // SPI.begin(SCK, MISO, MOSI, SD_CS_PIN);
+  // SPI.begin(SCK, MISO, MOSI, SDConfig::CS_PIN);
 
-  if (!SD.begin(SD_CS_PIN)) return;
+  if (!SD.begin(SDConfig::CS_PIN)) return;
 
   gSdOk = true;
   ensureDir("/data");
@@ -1595,7 +1783,7 @@ void initSD() {
 // ------------------- LOOP HELPERS -------------------
 
 static void updateWindPPS(uint32_t msNow) {
-  if (msNow - gLastPpsMillis < PPS_WINDOW_MS) return;
+  if (msNow - gLastPpsMillis < WindConfig::PPS_WINDOW_MS) return;
 
   uint32_t elapsedMs = msNow - gLastPpsMillis;
 
@@ -1606,10 +1794,9 @@ static void updateWindPPS(uint32_t msNow) {
   interrupts();
 
   float pps = (elapsedMs > 0) ? (delta * 1000.0f / (float)elapsedMs) : 0.0f;
-  float ms = pps * PPS_TO_MS;
+  float ms = pps * WindConfig::PPS_TO_MS;
 
   gNowWindMS = ms;
-  if (gNowWindMS > gNowWindMaxSinceBoot) gNowWindMaxSinceBoot = gNowWindMS;
   if (gNowWindMS > gBucketWindMax1) {
     gBucketWindMax2 = gBucketWindMax1;
     gBucketWindMax1 = gNowWindMS;
@@ -1628,10 +1815,10 @@ static void updateWindPPS(uint32_t msNow) {
 }
 
 static void pollBMEIfNeeded(uint32_t msNow) {
-  if (!BME_ENABLE || !gBmeOk) return;
-  if (msNow - gLastBmePollMillis < BME_POLL_MS) return;
+  if (!BME280Config::ENABLE || !gBmeOk) return;
+  if (msNow - gLastBmePollMillis < BME280Config::POLL_INTERVAL_MS) return;
   pollBME();
-  gLastBmePollMillis += BME_POLL_MS;
+  gLastBmePollMillis += BME280Config::POLL_INTERVAL_MS;
 }
 
 static void processBucketCatchup(time_t nowE) {
@@ -1644,7 +1831,7 @@ static void processBucketCatchup(time_t nowE) {
   while (gCurrentBucketStart < aligned && bucketsProcessed < MAX_BUCKETS_PER_LOOP) {
     finalizeCurrentBucket(gCurrentBucketStart);
 
-    gCurrentBucketStart += BUCKET_SECONDS;
+    gCurrentBucketStart += LogConfig::BUCKET_SECONDS;
     gBucketWindSum = 0.0f;
     gBucketWindMax1 = 0.0f;
     gBucketWindMax2 = 0.0f;
@@ -1677,7 +1864,7 @@ void setup() {
   gDaysCount = 0;
 
   // Set up pulse pin but don't attach interrupt yet to avoid counting noise during WiFi init
-  pinMode(PULSE_PIN, INPUT_PULLUP);
+  pinMode(WindConfig::PULSE_PIN, INPUT_PULLUP);
 
   WiFi.mode(WIFI_STA);
   WiFiManager wm;
@@ -1693,8 +1880,8 @@ void setup() {
   }
 
   Wire.begin();
-  if (BME_ENABLE) {
-    gBmeOk = bme.begin(BME_I2C_ADDR);
+  if (BME280Config::ENABLE) {
+    gBmeOk = bme.begin(BME280Config::I2C_ADDR_PRIMARY);
     if (!gBmeOk) gBmeOk = bme.begin(0x77);
     if (gBmeOk) {
       bme.setSampling(
@@ -1737,6 +1924,7 @@ void setup() {
   server.on("/api/buckets", handleApiBuckets);
   server.on("/api/buckets_ui", handleApiBucketsUi);  // Compact format for internal UI
   server.on("/api/days", handleApiDays);
+  server.on("/api/config", handleApiConfig);
   server.on("/api_help", handleApiHelp);
   server.on("/api/clear_data", HTTP_POST, handleApiClearData);
   server.on("/api/delete", HTTP_POST, handleApiDelete);
@@ -1745,6 +1933,8 @@ void setup() {
   server.on("/api/files", handleApiFiles);
   server.on("/download", handleDownload);
   server.on("/download_zip", handleDownloadZip);
+  server.on("/upload", HTTP_GET, handleUploadPage);
+  server.on("/upload", HTTP_POST, handleUploadComplete, handleUploadData);
 
   server.begin();
 
@@ -1759,7 +1949,7 @@ void setup() {
   // Attach pulse interrupt after all initialization to avoid counting noise during boot
   gLastPulseMicros = micros();
   gPulseCount = 0;
-  attachInterrupt(digitalPinToInterrupt(PULSE_PIN), onPulse, RISING);
+  attachInterrupt(digitalPinToInterrupt(WindConfig::PULSE_PIN), onPulse, RISING);
 }
 
 void loop() {

@@ -1,6 +1,3 @@
-#pragma once
-static const char ROOT_HTML[] PROGMEM = R"HTML(
-
 <!doctype html>
 <html>
 <head>
@@ -79,14 +76,6 @@ td,th {
   inset:0 0 0 auto;
   width:2px;
   background:#000;
-}
-
-.table-scroll :is(th,td):nth-child(2),
-.table-scroll :is(th,td):nth-child(3),
-.table-scroll :is(th,td):nth-child(7),
-.table-scroll :is(th,td):nth-child(8),
-.table-scroll :is(th,td):nth-child(9) {
-  background:#f8f8f8;
 }
 
 .pill {
@@ -223,84 +212,7 @@ code {
   <div class="row" style="margin-top: 14px;">
     <div class="card card-full">
       <div id="plots_container" class="plots-grid">
-        <div>
-          <div class="flex-between">
-            <div class="muted">Wind Speed (km/h)</div>
-            <button class="small reset-btn" onclick="resetZoom('wind')" id="reset_wind">Reset Zoom</button>
-          </div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('wind', event)" onmouseleave="plotMouseLeave('wind')" onmousedown="plotMouseDown('wind', event)" onmouseup="plotMouseUp('wind', event)" ondblclick="resetZoom('wind')" style="cursor:crosshair;">
-            <defs>
-              <clipPath id="plotClip_wind">
-                <rect x="60" y="8" width="530" height="106"/>
-              </clipPath>
-            </defs>
-            <g class="yaxis" id="axis_wind"></g>
-            <g class="xaxis" id="axis_x_wind"></g>
-            <line id="hover_line_wind" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-            <polyline id="line_wind" fill="none" stroke="black" stroke-width="2" points="" clip-path="url(#plotClip_wind)"></polyline>
-            <polyline id="line_wind_max" fill="none" stroke="#f0ad4e" stroke-width="2" points="" clip-path="url(#plotClip_wind)"></polyline>
-            <circle id="hover_dot_wind_avg" cx="0" cy="0" r="4" fill="black" stroke="#fff" stroke-width="1" opacity="0"></circle>
-            <circle id="hover_dot_wind_max" cx="0" cy="0" r="4" fill="#f0ad4e" stroke="#fff" stroke-width="1" opacity="0"></circle>
-            <rect id="select_rect_wind" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
-          </svg>
-        </div>
-        <div>
-          <div class="flex-between">
-            <div class="muted">Temperature (&deg;C)</div>
-            <button class="small reset-btn" onclick="resetZoom('temp')" id="reset_temp">Reset Zoom</button>
-          </div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('temp', event)" onmouseleave="plotMouseLeave('temp')" onmousedown="plotMouseDown('temp', event)" onmouseup="plotMouseUp('temp', event)" ondblclick="resetZoom('temp')" style="cursor:crosshair;">
-            <defs>
-              <clipPath id="plotClip_temp">
-                <rect x="60" y="8" width="530" height="106"/>
-              </clipPath>
-            </defs>
-            <g class="yaxis" id="axis_temp"></g>
-            <g class="xaxis" id="axis_x_temp"></g>
-            <line id="hover_line_temp" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-            <circle id="hover_dot_temp" cx="0" cy="0" r="4" fill="#d9534f" stroke="#000" stroke-width="1" opacity="0"></circle>
-            <polyline id="line_temp" fill="none" stroke="#d9534f" stroke-width="2" points="" clip-path="url(#plotClip_temp)"></polyline>
-            <rect id="select_rect_temp" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
-          </svg>
-        </div>
-        <div>
-          <div class="flex-between">
-            <div class="muted">Humidity (%)</div>
-            <button class="small reset-btn" onclick="resetZoom('hum')" id="reset_hum">Reset Zoom</button>
-          </div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('hum', event)" onmouseleave="plotMouseLeave('hum')" onmousedown="plotMouseDown('hum', event)" onmouseup="plotMouseUp('hum', event)" ondblclick="resetZoom('hum')" style="cursor:crosshair;">
-            <defs>
-              <clipPath id="plotClip_hum">
-                <rect x="60" y="8" width="530" height="106"/>
-              </clipPath>
-            </defs>
-            <g class="yaxis" id="axis_hum"></g>
-            <g class="xaxis" id="axis_x_hum"></g>
-            <line id="hover_line_hum" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-            <circle id="hover_dot_hum" cx="0" cy="0" r="4" fill="#0275d8" stroke="#000" stroke-width="1" opacity="0"></circle>
-            <polyline id="line_hum" fill="none" stroke="#0275d8" stroke-width="2" points="" clip-path="url(#plotClip_hum)"></polyline>
-            <rect id="select_rect_hum" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
-          </svg>
-        </div>
-        <div>
-          <div class="flex-between">
-            <div class="muted">Pressure (hPa)</div>
-            <button class="small reset-btn" onclick="resetZoom('press')" id="reset_press">Reset Zoom</button>
-          </div>
-          <svg viewBox="0 0 600 140" preserveAspectRatio="none" onmousemove="plotMouseMove('press', event)" onmouseleave="plotMouseLeave('press')" onmousedown="plotMouseDown('press', event)" onmouseup="plotMouseUp('press', event)" ondblclick="resetZoom('press')" style="cursor:crosshair;">
-            <defs>
-              <clipPath id="plotClip_press">
-                <rect x="60" y="8" width="530" height="106"/>
-              </clipPath>
-            </defs>
-            <g class="yaxis" id="axis_press"></g>
-            <g class="xaxis" id="axis_x_press"></g>
-            <line id="hover_line_press" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-            <circle id="hover_dot_press" cx="0" cy="0" r="4" fill="#5cb85c" stroke="#000" stroke-width="1" opacity="0"></circle>
-            <polyline id="line_press" fill="none" stroke="#5cb85c" stroke-width="2" points="" clip-path="url(#plotClip_press)"></polyline>
-            <rect id="select_rect_press" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
-          </svg>
-        </div>
+        <!-- Plots will be dynamically generated by JavaScript -->
       </div>
     </div>
   </div>
@@ -311,21 +223,8 @@ code {
       <div class="table-wrapper">
         <div class="table-scroll">
           <table>
-          <thead>
-            <tr>
-              <th>Day</th>
-              <th>Avg wind</th><th>Max wind</th>
-              <th>Avg temp</th><th>Min temp</th><th>Max temp</th>
-              <th>Avg RH</th><th>Min RH</th><th>Max RH</th>
-              <th>Avg press</th><th>Min press</th><th>Max press</th>
-            </tr>
-            <tr>
-              <th></th>
-              <th>(km/h)</th><th>(km/h)</th>
-              <th>(&deg;C)</th><th>(&deg;C)</th><th>(&deg;C)</th>
-              <th>(%)</th><th>(%)</th><th>(%)</th>
-              <th>(hPa)</th><th>(hPa)</th><th>(hPa)</th>
-            </tr>
+          <thead id="table_header">
+            <!-- Table headers will be dynamically generated by JavaScript -->
           </thead>
           <tbody id="days"></tbody>
           </table>
@@ -366,6 +265,7 @@ code {
       <div class="btnrow flex-between">
         <button onclick="window.location='/api_help'">API reference</button>
         <div style="display:flex; gap:8px;">
+          <button onclick="window.location='/upload'">Upload web files</button>
           <button style="background:#fee; border-color:#f5a3a3; color:#a00" onclick="clearSdData()">Clear SD data</button>
           <button style="background:#eef; border-color:#a3b5f5; color:#003399" onclick="rebootDevice()">Reboot</button>
         </div>
@@ -377,4 +277,3 @@ code {
 
 </body>
 </html>
-)HTML";

@@ -4,70 +4,13 @@ This project implements a **Wi‑Fi connected wind + environment logger** using 
 
 It provides:
 
-* Real-time wind speed calculation
-* 5-minute aggregated logging aligned to real time (NTP)
-* Daily CSV files with automatic retention cleanup
-* A built-in web UI with enhanced graphing and pagination
-* A REST API
-* CSV download endpoints
-* A streamed **ZIP download of the last N days** (no temp files, low RAM)
-
----
-
-## Recent improvements
-
-**Latest changes:**
-
-* **Web UI enhancements:**
-  * Added pagination for daily files (30 files per page) with previous/next buttons and page selector
-  * Dual hover dots on wind graph (shows both average and max wind)
-  * Smart tooltip positioning (auto-switches to left when near right edge)
-  * All sensor graphs now show temperature, humidity, and pressure data
-  * Added file deletion functionality with password protection
-  * Added "Clear all SD data" button with password protection
-  * Added reboot button
-  * Added RAM usage pill showing free memory and percentage used
-  * Streamlined plot layout (removed card borders to save space)
-  * Daily summaries table now has visual fade indicator when scrollable
-  * Sticky date column in daily summaries with clear border separator
-  * Interactive plot zooming:
-    * Click and drag to zoom into a time region
-    * Double-click to reset zoom
-    * Auto-scales y-axis when zoomed to show detail in visible range
-    * Configurable point limit (default 500) for performance with large datasets
-    * Zoom reveals more detail by downsampling only the visible region
-  * Plot rendering improvements:
-    * Clip paths prevent plot lines from overlapping y-axis labels
-    * Fixed x-axis font stretching on viewport resize
-    * 10 x-axis ticks for cleaner time labels
-    * Plots limited to 330px minimum width with responsive layout
-
-* **Code improvements:**
-  * Added 2ms debounce filter on pulse input to prevent spurious triggers
-  * Changed default bucket interval from 1 minute to 5 minutes (`BUCKET_SECONDS = 300`)
-  * Wind max calculation now uses actual maximum reading (not second-highest)
-  * Daily summaries now include temperature and humidity min/max/avg
-  * Removed stale cache logic - always loads fresh from SD on boot
-  * Daily summaries now sorted from most recent to oldest in API response
-  * Fixed invalid JSON generation in `/api/buckets` endpoint (empty bucket validation)
-  * Frontend JSON parsing now handles malformed responses gracefully
-  * Optimized RAM usage with compact data storage:
-    * Wind: stored as m/s * 2 (uint8_t, 0-127 m/s range) - saves 6 bytes per bucket
-    * Temperature: stored as int8_t in °C - saves 3 bytes per bucket
-    * Humidity: stored as uint8_t (0-100) - saves 3 bytes per bucket
-    * Pressure: stored as int8_t offset from 1000 hPa - saves 3 bytes per bucket
-    * **Total savings: ~4.3 KB RAM** for 24h of 5-minute buckets
-  * Separated public API (`/api/buckets`) and internal UI API (`/api/buckets_ui`)
-    * Public API returns full precision floats
-    * Internal UI API uses compact format to save bandwidth
-
-* **API additions:**
-  * `/api/buckets` now returns temperature, humidity, and pressure data with full precision
-  * `/api/buckets_ui` - Compact format endpoint for internal UI use (saves bandwidth)
-  * `/api/delete` (POST) - Delete individual files (password protected)
-  * `/api/clear_data` (POST) - Clear all SD data (password protected)
-  * `/api/reboot` (POST) - Reboot the device
-  * `/api/now` now includes `uptime_ms`, `free_heap`, and `heap_size` fields for RAM monitoring
+* Real-time wind speed calculation (1-second sampling)
+* Default 1-minute aggregated logging (adjustable), aligned to real time (NTP)
+* Daily CSV files with configurable retention (or keep forever)
+* A built-in web UI with interactive graphing and zoom
+* A REST API with full precision sensor data
+* CSV and ZIP download endpoints
+* Password-protected file management
 
 ---
 
@@ -96,18 +39,18 @@ It provides:
 1 pulse / second  = 0.0875 m/s
 ```
 
-Wind speed is calculated linearly from pulse rate.
+Wind speed is calculated linearly from pulse rate over a 1-second window.
 
 ---
 
 ## Time handling
 
+* **Requires WiFi connection** for timestamped logging
 * Uses **WiFiManager** for Wi‑Fi configuration
 * Uses **NTP** for time sync
 * Timezone configured via `TZ` string (default: Australia/Sydney)
 * All logging aligned to:
-
-  * **5-minute boundaries**
+  * **Default 1-minute boundaries** (adjustable via `BUCKET_SECONDS`)
   * **Local midnight rollovers**
 
 ---
@@ -116,7 +59,8 @@ Wind speed is calculated linearly from pulse rate.
 
 ### Logging interval
 
-* **Every 5 minutes** (configurable via `BUCKET_SECONDS` in `weather_station.ino`)
+* **Every 1 minute** (configurable via `BUCKET_SECONDS` in `weather_station.ino`)
+* Wind speed sampled once per second into each bucket
 
 ### Logged fields
 
@@ -126,8 +70,8 @@ Each row contains:
 | ------------- | -------------------------------- |
 | `datetime`    | Local time (`YYYY-MM-DD HH:MM`)  |
 | `epoch`       | Unix epoch (seconds)             |
-| `wind_avg_ms` | Average wind over 5 min (m/s)    |
-| `wind_max_ms` | Max wind over 5 min (m/s)        |
+| `wind_avg_ms` | Average wind over bucket (m/s)   |
+| `wind_max_ms` | Max wind over bucket (m/s)       |
 | `temp_c`      | Temperature (°C)                 |
 | `hum_rh`      | Relative humidity (%)            |
 | `press_hpa`   | Pressure (hPa)                   |
@@ -140,14 +84,14 @@ Each row contains:
 ```
 /
 └── data/
-    ├── YYYYMMDD.csv          # One per day (5-min rows)
+    ├── YYYYMMDD.csv          # One per day (1-min rows)
     └── ...
 ```
 
 ### Daily files (`/data`)
 
 * One CSV per day
-* Automatically deleted after `RETENTION_DAYS` (default 360 days)
+* Automatically deleted after `RETENTION_DAYS` (default 3600 days, set to 0 to never delete)
 * See Configuration options below for details
 
 ---
@@ -157,14 +101,16 @@ Each row contains:
 Key constants in `weather_station.ino`:
 
 ```cpp
-static constexpr int BUCKET_SECONDS = 300;      // Logging interval (5 minutes)
-static constexpr int RETENTION_DAYS = 360;      // Days to keep CSV files
-static constexpr int FILES_PER_PAGE = 30;       // Files shown per page in UI
-static constexpr int MAX_PLOT_POINTS = 500;     // Max points rendered on plots (for performance)
+static const char* API_PASSWORD = "ChangeMe";        // Password for delete operations
+static constexpr int BUCKET_SECONDS = 60;            // Logging interval (1 minute)
+static constexpr int RETENTION_DAYS = 3600;          // Days to keep CSV files (0 = never delete)
+static constexpr int FILES_PER_PAGE = 30;            // Files shown per page in UI
+static constexpr int MAX_PLOT_POINTS = 500;          // Max points rendered on plots (for performance)
 ```
 
-* `BUCKET_SECONDS`: How often data is logged (default 5 minutes = 300 seconds)
-* `RETENTION_DAYS`: Auto-delete CSV files older than this many days
+* `API_PASSWORD`: Password for file deletion and clear data operations (default: "ChangeMe")
+* `BUCKET_SECONDS`: How often data is logged (default 1 minute = 60 seconds)
+* `RETENTION_DAYS`: Auto-delete CSV files older than this many days (set to 0 to never delete)
 * `FILES_PER_PAGE`: Number of files shown per page in the CSV download section
 * `MAX_PLOT_POINTS`: Maximum number of points rendered on plots to prevent performance issues with large datasets. When zooming, this limit applies only to the visible region, revealing more detail.
 
@@ -174,8 +120,8 @@ static constexpr int MAX_PLOT_POINTS = 500;     // Max points rendered on plots 
 
 Assuming ~80 bytes per row:
 
-* 288 rows/day ≈ **23 KB/day**
-* 360 days ≈ **~8 MB** (with current retention setting)
+* 1440 rows/day ≈ **100 KB/day**
+* 3600 days (≈ 10 years) ≈ **~400 MB** (with default retention setting)
 
 ---
 
@@ -189,30 +135,33 @@ http://<device-ip>/
 
 ### UI features
 
-* Current wind speed
-* PPS and max wind since boot
-* Temperature / humidity / pressure
-* Last 24h graphs (5-min resolution):
-  * Wind speed (with average and max lines, dual hover dots)
-  * Temperature
-  * Humidity
-  * Pressure
-  * Interactive zoom (click and drag, double-click to reset)
-  * Auto-scaling y-axis when zoomed
-  * Performance optimization (configurable via `MAX_PLOT_POINTS` constant, default 500)
-* Smart tooltip positioning (auto-adjusts to avoid going off-screen)
-* Daily summaries table:
-  * Scrollable with sticky date column and visual fade indicator
-  * Shows wind, temperature, humidity, and pressure data
+* **Current readings:**
+  * Wind speed (km/h), pulses per second
+  * Temperature, humidity, pressure
+  * Uptime and RAM usage
+
+* **Last 24h graphs:**
+  * Wind speed (average and max lines with dual hover dots)
+  * Temperature, humidity, and pressure
+  * **Interactive zoom:** Click and drag to zoom, double-click to reset
+  * Auto-scaling y-axis when zoomed to show detail in visible range
+  * Smart tooltip positioning (auto-adjusts near edges)
+  * Performance optimization (max 500 points, configurable)
+
+* **Daily summaries table:**
+  * Wind, temperature, humidity, and pressure min/max/avg
+  * Scrollable with sticky date column
   * Sorted from most recent to oldest
-* CSV download section:
-  * Daily files (paginated - configurable via `FILES_PER_PAGE` constant, default 30 per page)
-  * Page navigation controls (previous/next buttons + page selector)
-  * File deletion with password protection
-  * ZIP download (last N days)
-* System controls:
-  * Clear all SD data (password protected)
-  * Reboot device
+
+* **File management:**
+  * Paginated CSV file list (30 per page, configurable)
+  * Individual file download and deletion (password protected)
+  * ZIP download of last N days
+  * Clear all SD data button (password protected)
+
+* **System controls:**
+  * Reboot device button
+  * RAM usage monitor
 
 ---
 
@@ -232,7 +181,6 @@ Example:
   "local_time": "2025-12-14 14:20",
   "wind_pps": 12.4,
   "wind_ms": 1.09,
-  "wind_max_since_boot": 6.23,
   "bme280_ok": true,
   "temp_c": 23.41,
   "hum_rh": 54.2,
@@ -249,10 +197,9 @@ Example:
 
 **GET** `/api/buckets`
 
-* Returns five-minute buckets for the last 24 hours
+* Returns sensor buckets for the last 24 hours (default 1-minute intervals)
 * Includes wind, temperature, humidity, and pressure data
-* Returns full precision floats for all values
-* Uses compact JSON keys to reduce bandwidth
+* Uses compact JSON keys to reduce size
 * Chunked transfer encoding to handle large responses
 
 Example:
@@ -260,11 +207,11 @@ Example:
 ```json
 {
   "now_epoch": 1734158023,
-  "bucket_seconds": 300,
+  "bucket_seconds": 60,
   "buckets": [
     {
       "t": 1734140200,
-      "w": {"a": 1.12, "m": 2.34, "s": 120},
+      "w": {"a": 1.12, "m": 2.34, "s": 60},
       "T": 23.5,
       "H": 54.2,
       "P": 1012.6
@@ -281,7 +228,6 @@ Example:
 - `T` = temperature (°C)
 - `H` = humidity (%)
 - `P` = pressure (hPa)
-```
 
 ---
 
@@ -290,7 +236,7 @@ Example:
 **GET** `/api/buckets_ui`
 
 * Internal endpoint used by the web UI
-* Array format (no keys) for bandwidth savings
+* Array format (no keys) for size reduction
 * Each bucket is an array of 7 full-precision numbers
 * Chunked transfer encoding with batching for performance
 
@@ -299,9 +245,9 @@ Example:
 ```json
 {
   "now_epoch": 1734158023,
-  "bucket_seconds": 300,
+  "bucket_seconds": 60,
   "buckets": [
-    [1734140200, 1.12, 2.34, 120, 23.5, 54.2, 1012.6]
+    [1734140200, 1.12, 2.34, 60, 23.5, 54.2, 1012.6]
   ]
 }
 ```
@@ -315,9 +261,8 @@ Example:
 - `[5]` = humidity (%)
 - `[6]` = pressure (hPa)
 
-**Example bucket:** `[1734140200, 1.12, 2.34, 120, 23.5, 54.2, 1012.6]`
-= 2023-12-14 09:30, 1.12 m/s avg, 2.34 m/s max, 120 samples, 23.5°C, 54.2%, 1012.6 hPa
-```
+**Example bucket:** `[1734140200, 1.12, 2.34, 60, 23.5, 54.2, 1012.6]`
+= 2023-12-14 09:30, 1.12 m/s avg, 2.34 m/s max, 60 samples, 23.5°C, 54.2%, 1012.6 hPa
 
 ---
 
@@ -396,7 +341,7 @@ Examples:
 * Streams ZIP directly (no temp files)
 * Uses ZIP **STORE** mode (no compression)
 * Includes only existing `/data/YYYYMMDD.csv` files
-* `days` is clamped to `1 .. RETENTION_DAYS`
+* `days` is clamped to `1 .. RETENTION_DAYS` (when `RETENTION_DAYS` > 0), or no upper limit (when `RETENTION_DAYS` = 0)
 
 ZIP filename:
 
@@ -422,7 +367,7 @@ Example:
 
 ```bash
 curl -X POST http://<device-ip>/api/delete \
-  -d "path=/data/20251214.csv&pw=yesplease"
+  -d "path=/data/20251214.csv&pw=ChangeMe"
 ```
 
 Response:
@@ -448,7 +393,7 @@ Example:
 
 ```bash
 curl -X POST http://<device-ip>/api/clear_data \
-  -d "pw=yesplease"
+  -d "pw=ChangeMe"
 ```
 
 Response:
@@ -488,7 +433,7 @@ Response:
 * Path traversal (`..`) blocked
 * ZIP streaming avoids RAM exhaustion
 * Delete operations are password-protected:
-  * Default password: `yesplease` (change in code before deployment)
+  * Configured via `API_PASSWORD` constant (default: "ChangeMe")
   * Rate limiting: 10 attempts per hour
   * Required for:
     * Individual file deletion (`POST /api/delete`)
@@ -499,23 +444,7 @@ Response:
 ## Known limitations
 
 * No authentication (LAN-trusted device)
-* GPIO0 boot-strap constraints
 * ZIP uses STORE (fast, not compressed)
 
----
-
-## Extending the project
-
-Common additions:
-
-* Auth token for API
-* MQTT publishing
-* Gust detection (short-window peak)
-* Compressed ZIP downloads
-
----
-
-## License
-
-Use freely for personal, educational, or commercial projects. No warranty provided.
+--
 
