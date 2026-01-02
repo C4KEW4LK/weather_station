@@ -4,24 +4,101 @@ let PLOT_KEYS = [];
 let FILES_PER_PAGE = 30;
 let MAX_PLOT_POINTS = 500;
 
+// Debug panel for mobile debugging
+let debugPanel = null;
+let debugLogs = [];
+
+function createDebugPanel() {
+  if (debugPanel) return;
+
+  debugPanel = document.createElement('div');
+  debugPanel.id = 'debug_panel';
+  debugPanel.style.cssText = `
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.9);
+    color: #0f0;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 10px;
+    z-index: 10000;
+    border-top: 2px solid #0f0;
+    display: none;
+  `;
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.textContent = 'Debug';
+  toggleBtn.style.cssText = `
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    z-index: 10001;
+    background: #000;
+    color: #0f0;
+    border: 1px solid #0f0;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+  `;
+  toggleBtn.onclick = () => {
+    debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+  };
+
+  document.body.appendChild(debugPanel);
+  document.body.appendChild(toggleBtn);
+}
+
+function debugLog(msg, data = null) {
+  const timestamp = new Date().toLocaleTimeString();
+  const logMsg = data ? `[${timestamp}] ${msg}: ${JSON.stringify(data)}` : `[${timestamp}] ${msg}`;
+
+  debugLogs.push(logMsg);
+  if (debugLogs.length > 100) debugLogs.shift();
+
+  if (debugPanel) {
+    debugPanel.innerHTML = debugLogs.map(l => `<div>${l}</div>`).join('');
+    debugPanel.scrollTop = debugPanel.scrollHeight;
+  }
+
+  // Also log to console
+  console.log(msg, data || '');
+}
+
 async function fetchJSON(url, { timeoutMs = 6000 } = {}){
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), timeoutMs);
+  // Use AbortController only if supported, otherwise use timeout promise
+  const useAbort = typeof AbortController !== 'undefined';
+  const ctrl = useAbort ? new AbortController() : null;
+  const signal = useAbort ? ctrl.signal : undefined;
+
+  const fetchPromise = fetch(url, {cache:"no-store", signal: signal});
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`timeout ${url}`)), timeoutMs)
+  );
+
   try{
-    const r = await fetch(url, {cache:"no-store", signal: ctrl.signal});
+    debugLog(`Fetching ${url}...`);
+    const r = useAbort ? await fetchPromise : await Promise.race([fetchPromise, timeoutPromise]);
+    debugLog(`Response ${url}`, {status: r.status, ok: r.ok});
     let txt = await r.text();
+    debugLog(`Response length: ${txt.length} chars`);
     if (!r.ok) throw new Error(`${url}: ${r.status}`);
     try{
       txt = txt.replace(/,(\s*,)+/g, ',').replace(/,(\s*)\]/g, '$1]').replace(/\[(\s*),/g, '[$1');
-      return JSON.parse(txt);
+      const parsed = JSON.parse(txt);
+      debugLog(`Parsed JSON from ${url}`);
+      return parsed;
     }catch(e){
+      debugLog(`Parse error ${url}`, {error: e.message, sample: txt.substring(0, 200)});
       throw new Error(`parse ${url}: ${e.message}`);
     }
   }catch(e){
+    debugLog(`Fetch error ${url}`, {error: e.message});
     if (e.name === "AbortError") throw new Error(`timeout ${url}`);
     throw e;
-  } finally {
-    clearTimeout(to);
   }
 }
 
@@ -83,23 +160,29 @@ function getDefaultConfig() {
 // Load configuration from API
 async function loadConfig() {
   try {
+    debugLog('Loading config from /api/config');
     CONFIG = await fetchJSON('/api/config');
-    console.log('Config loaded:', CONFIG);
+    debugLog('Config loaded', {plots: CONFIG.plots.length, cols: CONFIG.tableColumns.length});
   } catch (err) {
-    console.error('Failed to load config:', err);
+    debugLog('Config load failed', {error: err.message});
+    debugLog('Using fallback config');
     CONFIG = getDefaultConfig();
   }
 
   // Extract plot keys from config
   PLOT_KEYS = CONFIG.plots.map(p => p.id);
+  debugLog('Plot keys', PLOT_KEYS);
 
   // Update global constants from config
   FILES_PER_PAGE = CONFIG.filesPerPage || 30;
   MAX_PLOT_POINTS = CONFIG.maxPlotPoints || 500;
 
   // Generate UI
+  debugLog('Generating plots');
   generatePlots();
+  debugLog('Generating table headers');
   generateTableHeaders();
+  debugLog('UI generation complete');
 }
 
 // Generate plot SVG elements dynamically
@@ -156,6 +239,9 @@ function generatePlots() {
            onmousedown="plotMouseDown('${plot.id}', event)"
            onmouseup="plotMouseUp('${plot.id}', event)"
            ondblclick="resetZoom('${plot.id}')"
+           ontouchstart="plotTouchStart('${plot.id}', event)"
+           ontouchmove="plotTouchMove('${plot.id}', event)"
+           ontouchend="plotTouchEnd('${plot.id}', event)"
            style="cursor:crosshair;">
         <defs>
           <clipPath id="plotClip_${plot.id}">
@@ -508,6 +594,120 @@ function plotMouseUp(key, evt){
   });
 
   hideSelectionRect(key);
+  PLOT_KEYS.forEach(reRenderPlot);
+  setResetButtons(true);
+}
+
+// Touch event handlers for mobile support
+function plotTouchStart(key, evt) {
+  evt.preventDefault(); // Prevent scrolling while touching plot
+  if (evt.touches.length === 0) return;
+
+  const touch = evt.touches[0];
+  const now = Date.now();
+  const timeSinceLastTouch = now - dragState.lastClickTime;
+  dragState.lastClickTime = now;
+
+  // Double-tap detected - reset zoom
+  if (timeSinceLastTouch < 300) {
+    resetZoom(key);
+    return;
+  }
+
+  const rect = evt.currentTarget.getBoundingClientRect();
+  const relX = (touch.clientX - rect.left) * (chartDims.width / rect.width);
+  dragState.active = true;
+  dragState.plotKey = key;
+  dragState.startX = relX;
+  dragState.currentX = relX;
+  showSelectionRect(key);
+}
+
+function plotTouchMove(key, evt) {
+  evt.preventDefault(); // Prevent scrolling
+  if (evt.touches.length === 0) return;
+
+  const touch = evt.touches[0];
+  const rect = evt.currentTarget.getBoundingClientRect();
+  const relX = (touch.clientX - rect.left) * (chartDims.width / rect.width);
+
+  if (dragState.active && dragState.plotKey === key) {
+    dragState.currentX = relX;
+    updateSelectionRect(key);
+    hideTooltip();
+  } else {
+    // Create a synthetic mouse event for hovering
+    const syntheticEvent = {
+      currentTarget: evt.currentTarget,
+      clientX: touch.clientX,
+      clientY: touch.clientY
+    };
+    hoverPlot(key, syntheticEvent);
+  }
+}
+
+function plotTouchEnd(key, evt) {
+  evt.preventDefault();
+  if (!dragState.active || dragState.plotKey !== key) {
+    hideTooltip();
+    return;
+  }
+
+  // Use the same logic as plotMouseUp
+  dragState.active = false;
+
+  const dims = chartDims;
+  const xRange = dims.width - dims.padLeft - dims.padRight;
+  const startX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.startX));
+  const endX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.currentX));
+
+  const minX = Math.min(startX, endX);
+  const maxX = Math.max(startX, endX);
+  const dragWidth = maxX - minX;
+
+  if (dragWidth < 20) {
+    hideSelectionRect(key);
+    hideTooltip();
+    return;
+  }
+
+  const state = plotState[key];
+  if (!state || !state.xDomain) {
+    hideSelectionRect(key);
+    hideTooltip();
+    return;
+  }
+
+  if (!state.originalXDomain) {
+    state.originalXDomain = { ...state.xDomain };
+  }
+
+  let normStart = (minX - dims.padLeft) / xRange;
+  let normEnd = (maxX - dims.padLeft) / xRange;
+
+  normStart = Math.max(0, Math.min(1, normStart));
+  normEnd = Math.max(0, Math.min(1, normEnd));
+
+  const currentDomain = state.zoomXDomain || state.xDomain;
+  const span = currentDomain.max - currentDomain.min;
+
+  const newZoomDomain = {
+    min: currentDomain.min + normStart * span,
+    max: currentDomain.min + normEnd * span
+  };
+
+  PLOT_KEYS.forEach(plotKey => {
+    const plotSt = plotState[plotKey];
+    if (plotSt) {
+      if (!plotSt.originalXDomain && plotSt.xDomain) {
+        plotSt.originalXDomain = { ...plotSt.xDomain };
+      }
+      plotSt.zoomXDomain = { ...newZoomDomain };
+    }
+  });
+
+  hideSelectionRect(key);
+  hideTooltip();
   PLOT_KEYS.forEach(reRenderPlot);
   setResetButtons(true);
 }
@@ -1022,8 +1222,10 @@ async function tick(){
     ]);
 
     if (bucketsRes.status === "fulfilled") {
+      debugLog('Buckets received', {count: bucketsRes.value.buckets?.length});
       let series = Array.isArray(bucketsRes.value.buckets) ? bucketsRes.value.buckets : [];
       series = series.filter(b => Array.isArray(b) && b.length >= 7);
+      debugLog('Valid buckets', {count: series.length});
       series = series.map(b => {
         // Convert array format to object format
         // Array format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa]
@@ -1038,14 +1240,17 @@ async function tick(){
           avgPressHpa: b[6]
         };
       });
+      if (series.length > 0) debugLog('Sample data', series[0]);
       const bucketSeconds = bucketsRes.value.bucket_seconds || "--";
       document.getElementById("bucket_sec").textContent = bucketSeconds;
+      debugLog('Rendering plots');
       renderWind(series);
       renderSingleSeries(series, "avgTempC", "line_temp", "#d9534f", "axis_temp", "axis_x_temp");
       renderSingleSeries(series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");
       renderSingleSeries(series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
+      debugLog('Plots rendered');
     } else {
-      console.warn("buckets", bucketsRes.reason);
+      debugLog("Buckets failed", {error: bucketsRes.reason?.message});
     }
 
     if (daysRes.status === "fulfilled") {
@@ -1061,8 +1266,33 @@ async function tick(){
 
 // Initialize application
 (async function init() {
-  await loadConfig();
-  tick();
-  setInterval(tick, 2000);
-  loadFiles('data');
+  // Create debug panel first
+  createDebugPanel();
+
+  try {
+    debugLog('Initializing app');
+    debugLog('User Agent', {ua: navigator.userAgent.substring(0, 100)});
+    debugLog('URL', {url: window.location.href});
+
+    await loadConfig();
+    debugLog('Starting tick');
+
+    tick();
+    setInterval(tick, 2000);
+    loadFiles('data');
+
+    debugLog('Initialization complete');
+  } catch (error) {
+    debugLog('INIT FAILED', {error: error.message, stack: error.stack});
+    // Show error on page
+    const body = document.body;
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#d9534f;color:white;padding:20px;z-index:9999;';
+    errorDiv.innerHTML = `
+      <h3>Initialization Error</h3>
+      <p>${error.message || error}</p>
+      <p><small>Click Debug button to see details</small></p>
+    `;
+    body.insertBefore(errorDiv, body.firstChild);
+  }
 })();
