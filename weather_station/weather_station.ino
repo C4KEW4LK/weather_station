@@ -39,6 +39,10 @@
 #include "upload_page.h"
 #include "api_help_page.h"
 
+// ------------------- UART FOR PMS5003 -------------------
+// ESP32-C3 doesn't have Serial2 predefined, create custom HardwareSerial
+HardwareSerial Serial2(1);  // Use UART1 for PMS5003
+
 // ------------------- FORWARD DECLARATIONS -------------------
 
 struct BucketSample;
@@ -58,6 +62,9 @@ struct BucketSample {
   float avgTempC;        // °C (NAN = invalid)
   float avgHumRH;        // % (NAN = invalid)
   float avgPressHpa;     // hPa (NAN = invalid)
+  float avgPM1;          // μg/m³ (NAN = invalid)
+  float avgPM25;         // μg/m³ (NAN = invalid)
+  float avgPM10;         // μg/m³ (NAN = invalid)
 };
 
 struct DaySummary {
@@ -73,6 +80,12 @@ struct DaySummary {
   float avgPress;
   float minPress;
   float maxPress;
+  float avgPM1;
+  float maxPM1;
+  float avgPM25;
+  float maxPM25;
+  float avgPM10;
+  float maxPM10;
 };
 
 static BucketSample gBuckets[LogConfig::BUCKETS_24H];
@@ -100,6 +113,10 @@ static float    gBucketTempSum = 0.0f;
 static float    gBucketHumSum = 0.0f;
 static float    gBucketPressSumPa = 0.0f;
 static uint32_t gBucketEnvSamples = 0;
+static float    gBucketPM1Sum = 0.0f;
+static float    gBucketPM25Sum = 0.0f;
+static float    gBucketPM10Sum = 0.0f;
+static uint32_t gBucketPmSamples = 0;
 
 // daily rollup
 static time_t   gTodayMidnightEpoch = 0;
@@ -118,6 +135,15 @@ static float    gTodayPressSum = 0.0f;
 static uint32_t gTodayPressCount = 0;
 static float    gTodayPressMin = NAN;
 static float    gTodayPressMax = NAN;
+static float    gTodayPM1Sum = 0.0f;
+static uint32_t gTodayPM1Count = 0;
+static float    gTodayPM1Max = NAN;
+static float    gTodayPM25Sum = 0.0f;
+static uint32_t gTodayPM25Count = 0;
+static float    gTodayPM25Max = NAN;
+static float    gTodayPM10Sum = 0.0f;
+static uint32_t gTodayPM10Count = 0;
+static float    gTodayPM10Max = NAN;
 
 // Auth / rate limit for password-protected endpoints
 static int      gPwAttempts = 0;
@@ -141,6 +167,15 @@ static void clearTodayAggregates() {
   gTodayPressCount = 0;
   gTodayPressMin = NAN;
   gTodayPressMax = NAN;
+  gTodayPM1Sum = 0.0f;
+  gTodayPM1Count = 0;
+  gTodayPM1Max = NAN;
+  gTodayPM25Sum = 0.0f;
+  gTodayPM25Count = 0;
+  gTodayPM25Max = NAN;
+  gTodayPM10Sum = 0.0f;
+  gTodayPM10Count = 0;
+  gTodayPM10Max = NAN;
 }
 
 // BME280 latest
@@ -150,6 +185,18 @@ static float gTempC = NAN;
 static float gHumRH = NAN;
 static float gPressurePa = NAN;
 static uint32_t gLastBmePollMillis = 0;
+
+// PMS5003 latest readings
+static const int PMS_FRAME_SIZE = 32;
+static const uint8_t PMS_HEADER_1 = 0x42;
+static const uint8_t PMS_HEADER_2 = 0x4d;
+static uint8_t gPmsFrameBuffer[32];
+static int gPmsFrameIndex = 0;
+static bool gPmsOk = false;
+static float gPM1 = NAN;
+static float gPM25 = NAN;
+static float gPM10 = NAN;
+static uint32_t gLastPmsPollMillis = 0;
 
 // SD status
 static bool gSdOk = false;
@@ -292,7 +339,7 @@ void logBucketToSD(const BucketSample& b) {
   String dailyFile = String("/data/") + ymd + ".csv";
 
   String header =
-    "datetime,epoch,wind_avg_ms,wind_max_ms,temp_c,hum_rh,press_hpa,samples";
+    "datetime,epoch,wind_avg_ms,wind_max_ms,temp_c,hum_rh,press_hpa,pm1,pm25,pm10,samples";
 
   String line =
     fmtLocal(b.startEpoch) + "," +
@@ -302,6 +349,9 @@ void logBucketToSD(const BucketSample& b) {
     String(b.avgTempC, 2) + "," +
     String(b.avgHumRH, 2) + "," +
     String(b.avgPressHpa, 2) + "," +
+    String(isfinite(b.avgPM1) ? String(b.avgPM1, 1) : String("")) + "," +
+    String(isfinite(b.avgPM25) ? String(b.avgPM25, 1) : String("")) + "," +
+    String(isfinite(b.avgPM10) ? String(b.avgPM10, 1) : String("")) + "," +
     String(b.samples);
 
   appendLine(dailyFile, line, header);
@@ -377,8 +427,18 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
       line.trim();
       if (!line.length()) continue;
       if (line.startsWith("datetime")) continue;
-      String parts[8];
-      if (!splitCSVLine(line, parts, 8)) continue;
+
+      // Count actual columns
+      int commaCount = 0;
+      for (int i = 0; i < line.length(); i++) {
+        if (line[i] == ',') commaCount++;
+      }
+      int numCols = commaCount + 1;
+
+      String parts[11];
+      splitCSVLine(line, parts, numCols < 11 ? numCols : 11);
+
+      if (numCols < 8) continue;  // Need at least 8 fields
       BucketSample b{};
       b.startEpoch = (time_t)parts[1].toInt();
       if (!timeIsValid(b.startEpoch) || b.startEpoch < cutoff) continue;
@@ -390,7 +450,11 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
       b.avgTempC = parseFloatOrNan(parts[4]);
       b.avgHumRH = parseFloatOrNan(parts[5]);
       b.avgPressHpa = parseFloatOrNan(parts[6]);
-      b.samples = (uint32_t)std::max<long>(0, parts[7].toInt());
+      // PM fields (optional for backward compatibility)
+      b.avgPM1 = (numCols > 7) ? parseFloatOrNan(parts[7]) : NAN;
+      b.avgPM25 = (numCols > 8) ? parseFloatOrNan(parts[8]) : NAN;
+      b.avgPM10 = (numCols > 9) ? parseFloatOrNan(parts[9]) : NAN;
+      b.samples = (uint32_t)std::max<long>(0, parts[numCols > 10 ? 10 : 7].toInt());
       loaded.push_back(b);
     }
     f.close();
@@ -435,6 +499,55 @@ void pollBME() {
   }
 }
 
+// ------------------- PMS5003 -------------------
+void pollPMS() {
+  if (!PMS5003Config::ENABLE) return;
+
+  while (Serial2.available()) {
+    uint8_t byte = Serial2.read();
+
+    // Frame synchronization - looking for header 0x42 0x4d
+    if (gPmsFrameIndex == 0 && byte != PMS_HEADER_1) continue;
+    if (gPmsFrameIndex == 1 && byte != PMS_HEADER_2) {
+      gPmsFrameIndex = 0;
+      continue;
+    }
+
+    gPmsFrameBuffer[gPmsFrameIndex++] = byte;
+
+    if (gPmsFrameIndex == PMS_FRAME_SIZE) {
+      // Validate checksum (sum of bytes 0-29)
+      uint16_t checksum = 0;
+      for (int i = 0; i < 30; i++) {
+        checksum += gPmsFrameBuffer[i];
+      }
+      uint16_t frameChecksum = ((uint16_t)gPmsFrameBuffer[30] << 8) | gPmsFrameBuffer[31];
+
+      if (checksum == frameChecksum) {
+        // Extract PM values (CF=1 readings, proven working)
+        // Bytes 4-5: PM1.0, 6-7: PM2.5, 8-9: PM10
+        uint16_t pm1_raw = ((uint16_t)gPmsFrameBuffer[4] << 8) | gPmsFrameBuffer[5];
+        uint16_t pm25_raw = ((uint16_t)gPmsFrameBuffer[6] << 8) | gPmsFrameBuffer[7];
+        uint16_t pm10_raw = ((uint16_t)gPmsFrameBuffer[8] << 8) | gPmsFrameBuffer[9];
+
+        gPM1 = (float)pm1_raw;
+        gPM25 = (float)pm25_raw;
+        gPM10 = (float)pm10_raw;
+
+        // Accumulate for per-bucket averages
+        if (timeIsValid(gCurrentBucketStart)) {
+          gBucketPM1Sum += gPM1;
+          gBucketPM25Sum += gPM25;
+          gBucketPM10Sum += gPM10;
+          gBucketPmSamples++;
+        }
+      }
+
+      gPmsFrameIndex = 0;
+    }
+  }
+}
+
 // ------------------- BUCKETS / DAILY -------------------
 
 void startBucketAt(time_t bucketStart) {
@@ -449,6 +562,10 @@ void startBucketAt(time_t bucketStart) {
   gBucketHumSum = 0.0f;
   gBucketPressSumPa = 0.0f;
   gBucketEnvSamples = 0;
+  gBucketPM1Sum = 0.0f;
+  gBucketPM25Sum = 0.0f;
+  gBucketPM10Sum = 0.0f;
+  gBucketPmSamples = 0;
 }
 
 void pushBucketSample(const BucketSample& b) {
@@ -483,9 +600,25 @@ static void accumulateTodayFromBucket(const BucketSample& b) {
     gTodayPressSum += b.avgPressHpa;
     gTodayPressCount++;
   }
+  // PM accumulation (average only, no min/max)
+  if (isfinite(b.avgPM1)) {
+    gTodayPM1Sum += b.avgPM1;
+    gTodayPM1Count++;
+    if (!isfinite(gTodayPM1Max) || b.avgPM1 > gTodayPM1Max) gTodayPM1Max = b.avgPM1;
+  }
+  if (isfinite(b.avgPM25)) {
+    gTodayPM25Sum += b.avgPM25;
+    gTodayPM25Count++;
+    if (!isfinite(gTodayPM25Max) || b.avgPM25 > gTodayPM25Max) gTodayPM25Max = b.avgPM25;
+  }
+  if (isfinite(b.avgPM10)) {
+    gTodayPM10Sum += b.avgPM10;
+    gTodayPM10Count++;
+    if (!isfinite(gTodayPM10Max) || b.avgPM10 > gTodayPM10Max) gTodayPM10Max = b.avgPM10;
+  }
 }
 
-void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp, float minTemp, float maxTemp, float avgHum, float minHum, float maxHum, float avgPress = NAN, float minPress = NAN, float maxPress = NAN) {
+void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp, float minTemp, float maxTemp, float avgHum, float minHum, float maxHum, float avgPress = NAN, float minPress = NAN, float maxPress = NAN, float avgPM1 = NAN, float maxPM1 = NAN, float avgPM25 = NAN, float maxPM25 = NAN, float avgPM10 = NAN, float maxPM10 = NAN) {
   if (!timeIsValid(dayStart)) return;
   DaySummary d{};
   d.dayStartEpoch = dayStart;
@@ -500,6 +633,12 @@ void pushDaySummary(time_t dayStart, float avgWind, float maxWind, float avgTemp
   d.avgPress = avgPress;
   d.minPress = minPress;
   d.maxPress = maxPress;
+  d.avgPM1 = avgPM1;
+  d.maxPM1 = maxPM1;
+  d.avgPM25 = avgPM25;
+  d.maxPM25 = maxPM25;
+  d.avgPM10 = avgPM10;
+  d.maxPM10 = maxPM10;
 
   gDays[gDayWrite] = d;
   gDayWrite = (gDayWrite + 1) % LogConfig::DAYS_HISTORY;
@@ -520,7 +659,10 @@ void maybeRolloverDay(time_t nowEpoch) {
       float avgTemp = (gTodayTempCount > 0) ? (gTodayTempSum / (float)gTodayTempCount) : NAN;
       float avgHum  = (gTodayHumCount > 0) ? (gTodayHumSum / (float)gTodayHumCount) : NAN;
       float avgPress = (gTodayPressCount > 0) ? (gTodayPressSum / (float)gTodayPressCount) : NAN;
-      pushDaySummary(gTodayMidnightEpoch, avgWind, gTodayMax, avgTemp, gTodayTempMin, gTodayTempMax, avgHum, gTodayHumMin, gTodayHumMax, avgPress, gTodayPressMin, gTodayPressMax);
+      float avgPM1 = (gTodayPM1Count > 0) ? (gTodayPM1Sum / (float)gTodayPM1Count) : NAN;
+      float avgPM25 = (gTodayPM25Count > 0) ? (gTodayPM25Sum / (float)gTodayPM25Count) : NAN;
+      float avgPM10 = (gTodayPM10Count > 0) ? (gTodayPM10Sum / (float)gTodayPM10Count) : NAN;
+      pushDaySummary(gTodayMidnightEpoch, avgWind, gTodayMax, avgTemp, gTodayTempMin, gTodayTempMax, avgHum, gTodayHumMin, gTodayHumMax, avgPress, gTodayPressMin, gTodayPressMax, avgPM1, gTodayPM1Max, avgPM25, gTodayPM25Max, avgPM10, gTodayPM10Max);
     }
 
     gTodayMidnightEpoch = midnight;
@@ -545,6 +687,15 @@ struct DayAgg {
   uint32_t pressCount = 0;
   float pressMin = NAN;
   float pressMax = NAN;
+  float pm1Sum = 0.0f;
+  uint32_t pm1Count = 0;
+  float pm1Max = NAN;
+  float pm25Sum = 0.0f;
+  uint32_t pm25Count = 0;
+  float pm25Max = NAN;
+  float pm10Sum = 0.0f;
+  uint32_t pm10Count = 0;
+  float pm10Max = NAN;
 };
 
 static void computeBucketSample(BucketSample& b, time_t bucketStart) {
@@ -574,6 +725,17 @@ static void computeBucketSample(BucketSample& b, time_t bucketStart) {
   float maxWindMs = gBucketWindMax1;
   if (maxWindMs < avgWindMs) maxWindMs = avgWindMs;
   b.maxWind = maxWindMs;
+
+  // PM averages
+  if (gBucketPmSamples > 0) {
+    b.avgPM1 = gBucketPM1Sum / (float)gBucketPmSamples;
+    b.avgPM25 = gBucketPM25Sum / (float)gBucketPmSamples;
+    b.avgPM10 = gBucketPM10Sum / (float)gBucketPmSamples;
+  } else {
+    b.avgPM1 = NAN;
+    b.avgPM25 = NAN;
+    b.avgPM10 = NAN;
+  }
 }
 
 void loadDaySummariesFromSD(time_t nowEpoch) {
@@ -591,7 +753,7 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
 
   // Collect per-day aggregates
   struct Entry { time_t day; DayAgg agg; };
-  Entry entries[64];
+  Entry entries[30];  // Reduced from 64 to avoid stack overflow
   int entryCount = 0;
 
   while (true) {
@@ -625,13 +787,27 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
       line.trim();
       if (!line.length()) continue;
       if (line.startsWith("datetime")) continue;
-      String parts[8];
-      if (!splitCSVLine(line, parts, 8)) continue;
+
+      // Count actual columns
+      int commaCount = 0;
+      for (int i = 0; i < line.length(); i++) {
+        if (line[i] == ',') commaCount++;
+      }
+      int numCols = commaCount + 1;
+
+      String parts[11];
+      splitCSVLine(line, parts, numCols < 11 ? numCols : 11);
+
+      // Parse available columns (old format has 8 cols, new format has 11)
+      if (numCols < 7) continue;  // Need at least 7 columns for basic data
       float windAvg = parseFloatOrNan(parts[2]);
       float windMax = parseFloatOrNan(parts[3]);
       float temp    = parseFloatOrNan(parts[4]);
       float hum     = parseFloatOrNan(parts[5]);
       float press   = parseFloatOrNan(parts[6]);
+      float pm1     = (numCols > 7) ? parseFloatOrNan(parts[7]) : NAN;
+      float pm25    = (numCols > 8) ? parseFloatOrNan(parts[8]) : NAN;
+      float pm10    = (numCols > 9) ? parseFloatOrNan(parts[9]) : NAN;
 
       if (isfinite(windAvg)) { agg->sumWind += windAvg; agg->countWind++; }
       if (isfinite(windMax)) { if (!isfinite(agg->maxWind) || windMax > agg->maxWind) agg->maxWind = windMax; }
@@ -649,6 +825,18 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
         if (!isfinite(agg->pressMin) || press < agg->pressMin) agg->pressMin = press;
         if (!isfinite(agg->pressMax) || press > agg->pressMax) agg->pressMax = press;
         agg->pressSum += press; agg->pressCount++;
+      }
+      if (isfinite(pm1)) {
+        if (!isfinite(agg->pm1Max) || pm1 > agg->pm1Max) agg->pm1Max = pm1;
+        agg->pm1Sum += pm1; agg->pm1Count++;
+      }
+      if (isfinite(pm25)) {
+        if (!isfinite(agg->pm25Max) || pm25 > agg->pm25Max) agg->pm25Max = pm25;
+        agg->pm25Sum += pm25; agg->pm25Count++;
+      }
+      if (isfinite(pm10)) {
+        if (!isfinite(agg->pm10Max) || pm10 > agg->pm10Max) agg->pm10Max = pm10;
+        agg->pm10Sum += pm10; agg->pm10Count++;
       }
     }
     f.close();
@@ -672,9 +860,13 @@ void loadDaySummariesFromSD(time_t nowEpoch) {
     float maxWind = a.maxWind;
     float avgTemp = (a.tempCount > 0) ? (a.tempSum / (float)a.tempCount) : NAN;
     float avgPress = (a.pressCount > 0) ? (a.pressSum / (float)a.pressCount) : NAN;
+    float avgPM1 = (a.pm1Count > 0) ? (a.pm1Sum / (float)a.pm1Count) : NAN;
+    float avgPM25 = (a.pm25Count > 0) ? (a.pm25Sum / (float)a.pm25Count) : NAN;
+    float avgPM10 = (a.pm10Count > 0) ? (a.pm10Sum / (float)a.pm10Count) : NAN;
     pushDaySummary(entries[i].day, avgWind, maxWind, avgTemp, a.tempMin, a.tempMax,
                    (a.humCount > 0) ? (a.humSum / (float)a.humCount) : NAN,
-                   a.humMin, a.humMax, avgPress, a.pressMin, a.pressMax);
+                   a.humMin, a.humMax, avgPress, a.pressMin, a.pressMax,
+                   avgPM1, a.pm1Max, avgPM25, a.pm25Max, avgPM10, a.pm10Max);
   }
 }
 
@@ -737,6 +929,15 @@ bool buildCurrentDaySummary(DaySummary& out) {
   out.avgPress = (pressCount > 0) ? (pressSum / (float)pressCount) : NAN;
   out.minPress = pressMin;
   out.maxPress = pressMax;
+
+  // PM data
+  out.avgPM1 = (gTodayPM1Count > 0) ? (gTodayPM1Sum / (float)gTodayPM1Count) : NAN;
+  out.maxPM1 = gTodayPM1Max;
+  out.avgPM25 = (gTodayPM25Count > 0) ? (gTodayPM25Sum / (float)gTodayPM25Count) : NAN;
+  out.maxPM25 = gTodayPM25Max;
+  out.avgPM10 = (gTodayPM10Count > 0) ? (gTodayPM10Sum / (float)gTodayPM10Count) : NAN;
+  out.maxPM10 = gTodayPM10Max;
+
   return true;
 }
 
@@ -1123,7 +1324,7 @@ void handleRoot() {
   <h1>Weather Station - Setup Required</h1>
   <p>Web interface files not found on SD card.</p>
   <ul>
-    <li><a href="/upload">Upload web files (index.html, app.js)</a></li>
+    <li><a href="/upload">Upload UI files (index.html, app.js)</a></li>
     <li><a href="/api/now">View current sensor data (JSON)</a></li>
     <li><a href="/api/buckets">View bucket data (JSON)</a></li>
     <li><a href="/api/days">View daily summaries (JSON)</a></li>
@@ -1205,9 +1406,57 @@ void handleApiDelete() {
 }
 
 void handleApiReboot() {
+  String pw = server.arg("pw");
+  bool rateLimited = false;
+  if (!verifyPassword(pw, rateLimited)) {
+    server.send(rateLimited ? 429 : 401, "application/json",
+                rateLimited ? "{\"ok\":false,\"error\":\"rate_limited\"}"
+                            : "{\"ok\":false,\"error\":\"unauthorized\"}");
+    return;
+  }
   server.send(200, "application/json", "{\"ok\":true}");
   delay(100);
   ESP.restart();
+}
+
+// ------------------- AQI CALCULATION -------------------
+// Calculate EPA AQI for PM2.5 (24-hour average, but we use current reading)
+int calculateAQI_PM25(float pm25) {
+  if (!isfinite(pm25) || pm25 < 0) return -1;
+
+  // EPA AQI breakpoints for PM2.5 (μg/m³)
+  if (pm25 <= 12.0) return map((int)(pm25 * 10), 0, 120, 0, 50);
+  else if (pm25 <= 35.4) return map((int)(pm25 * 10), 121, 354, 51, 100);
+  else if (pm25 <= 55.4) return map((int)(pm25 * 10), 355, 554, 101, 150);
+  else if (pm25 <= 150.4) return map((int)(pm25 * 10), 555, 1504, 151, 200);
+  else if (pm25 <= 250.4) return map((int)(pm25 * 10), 1505, 2504, 201, 300);
+  else if (pm25 <= 500.4) return map((int)(pm25 * 10), 2505, 5004, 301, 500);
+  else return 500;
+}
+
+// Calculate EPA AQI for PM10 (24-hour average, but we use current reading)
+int calculateAQI_PM10(float pm10) {
+  if (!isfinite(pm10) || pm10 < 0) return -1;
+
+  // EPA AQI breakpoints for PM10 (μg/m³)
+  if (pm10 <= 54) return map((int)pm10, 0, 54, 0, 50);
+  else if (pm10 <= 154) return map((int)pm10, 55, 154, 51, 100);
+  else if (pm10 <= 254) return map((int)pm10, 155, 254, 101, 150);
+  else if (pm10 <= 354) return map((int)pm10, 255, 354, 151, 200);
+  else if (pm10 <= 424) return map((int)pm10, 355, 424, 201, 300);
+  else if (pm10 <= 604) return map((int)pm10, 425, 604, 301, 500);
+  else return 500;
+}
+
+// Get AQI category string
+const char* getAQICategory(int aqi) {
+  if (aqi < 0) return "N/A";
+  else if (aqi <= 50) return "Good";
+  else if (aqi <= 100) return "Moderate";
+  else if (aqi <= 150) return "Unhealthy for Sensitive";
+  else if (aqi <= 200) return "Unhealthy";
+  else if (aqi <= 300) return "Very Unhealthy";
+  else return "Hazardous";
 }
 
 void handleApiNow() {
@@ -1227,8 +1476,22 @@ void handleApiNow() {
   out += "\"hum_rh\":" + (isfinite(gHumRH) ? String(gHumRH, 2) : String("null")) + ",";
   out += "\"press_hpa\":" + (isfinite(press_hpa) ? String(press_hpa, 2) : String("null")) + ",";
 
+  out += "\"pms5003_ok\":" + String(gPmsOk ? "true" : "false") + ",";
+  out += "\"pm1\":" + (isfinite(gPM1) ? String(gPM1, 1) : String("null")) + ",";
+  out += "\"pm25\":" + (isfinite(gPM25) ? String(gPM25, 1) : String("null")) + ",";
+  out += "\"pm10\":" + (isfinite(gPM10) ? String(gPM10, 1) : String("null")) + ",";
+
+  // Calculate AQI values
+  int aqiPM25 = calculateAQI_PM25(gPM25);
+  int aqiPM10 = calculateAQI_PM10(gPM10);
+  out += "\"aqi_pm25\":" + (aqiPM25 >= 0 ? String(aqiPM25) : String("null")) + ",";
+  out += "\"aqi_pm25_category\":\"" + String(getAQICategory(aqiPM25)) + "\",";
+  out += "\"aqi_pm10\":" + (aqiPM10 >= 0 ? String(aqiPM10) : String("null")) + ",";
+  out += "\"aqi_pm10_category\":\"" + String(getAQICategory(aqiPM10)) + "\",";
+
   out += "\"sd_ok\":" + String(gSdOk ? "true" : "false") + ",";
-  out += "\"uptime_ms\":" + String((uint32_t)millis()) + ",";
+  out += "\"cpu_temp_c\":" + String(temperatureRead(), 1) + ",";
+  out += "\"uptime_s\":" + String((uint32_t)(millis() / 1000)) + ",";
   out += "\"retention_days\":" + String(LogConfig::RETENTION_DAYS) + ",";
   out += "\"wifi_rssi\":" + String(WiFi.RSSI()) + ",";
   out += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
@@ -1269,13 +1532,19 @@ static String buildBucketJson(const BucketSample& b) {
   out += numOrNull(hum_rh, 2);
   out += ",\"P\":";
   out += numOrNull(press_hpa, 2);
+  out += ",\"pm1\":";
+  out += numOrNull(b.avgPM1, 1);
+  out += ",\"pm25\":";
+  out += numOrNull(b.avgPM25, 1);
+  out += ",\"pm10\":";
+  out += numOrNull(b.avgPM10, 1);
   out += "}";
   return out;
 }
 
 static String buildBucketJsonCompact(const BucketSample& b) {
   // Compact format for internal UI - array format with full precision
-  // Format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa]
+  // Format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa, pm1, pm25, pm10]
   if (!timeIsValid(b.startEpoch)) return "";
 
   // Use full precision floats directly
@@ -1305,6 +1574,12 @@ static String buildBucketJsonCompact(const BucketSample& b) {
   out += numOrNull(hum_rh, 2);
   out += ",";
   out += numOrNull(press_hpa, 2);
+  out += ",";
+  out += numOrNull(b.avgPM1, 1);
+  out += ",";
+  out += numOrNull(b.avgPM25, 1);
+  out += ",";
+  out += numOrNull(b.avgPM10, 1);
   out += "]";
   return out;
 }
@@ -1466,7 +1741,13 @@ void handleApiDays() {
     out += "\"maxHum\":" + (isfinite(curDay.maxHum) ? String(curDay.maxHum, 2) : String("null")) + ",";
     out += "\"avgPress\":" + (isfinite(curDay.avgPress) ? String(curDay.avgPress, 2) : String("null")) + ",";
     out += "\"minPress\":" + (isfinite(curDay.minPress) ? String(curDay.minPress, 2) : String("null")) + ",";
-    out += "\"maxPress\":" + (isfinite(curDay.maxPress) ? String(curDay.maxPress, 2) : String("null"));
+    out += "\"maxPress\":" + (isfinite(curDay.maxPress) ? String(curDay.maxPress, 2) : String("null")) + ",";
+    out += "\"avgPM1\":" + (isfinite(curDay.avgPM1) ? String(curDay.avgPM1, 1) : String("null")) + ",";
+    out += "\"maxPM1\":" + (isfinite(curDay.maxPM1) ? String(curDay.maxPM1, 1) : String("null")) + ",";
+    out += "\"avgPM25\":" + (isfinite(curDay.avgPM25) ? String(curDay.avgPM25, 1) : String("null")) + ",";
+    out += "\"maxPM25\":" + (isfinite(curDay.maxPM25) ? String(curDay.maxPM25, 1) : String("null")) + ",";
+    out += "\"avgPM10\":" + (isfinite(curDay.avgPM10) ? String(curDay.avgPM10, 1) : String("null")) + ",";
+    out += "\"maxPM10\":" + (isfinite(curDay.maxPM10) ? String(curDay.maxPM10, 1) : String("null"));
     out += "}";
     firstOut = false;
   }
@@ -1492,7 +1773,13 @@ void handleApiDays() {
     out += "\"maxHum\":" + (isfinite(d.maxHum) ? String(d.maxHum, 2) : String("null")) + ",";
     out += "\"avgPress\":" + (isfinite(d.avgPress) ? String(d.avgPress, 2) : String("null")) + ",";
     out += "\"minPress\":" + (isfinite(d.minPress) ? String(d.minPress, 2) : String("null")) + ",";
-    out += "\"maxPress\":" + (isfinite(d.maxPress) ? String(d.maxPress, 2) : String("null"));
+    out += "\"maxPress\":" + (isfinite(d.maxPress) ? String(d.maxPress, 2) : String("null")) + ",";
+    out += "\"avgPM1\":" + (isfinite(d.avgPM1) ? String(d.avgPM1, 1) : String("null")) + ",";
+    out += "\"maxPM1\":" + (isfinite(d.maxPM1) ? String(d.maxPM1, 1) : String("null")) + ",";
+    out += "\"avgPM25\":" + (isfinite(d.avgPM25) ? String(d.avgPM25, 1) : String("null")) + ",";
+    out += "\"maxPM25\":" + (isfinite(d.maxPM25) ? String(d.maxPM25, 1) : String("null")) + ",";
+    out += "\"avgPM10\":" + (isfinite(d.avgPM10) ? String(d.avgPM10, 1) : String("null")) + ",";
+    out += "\"maxPM10\":" + (isfinite(d.maxPM10) ? String(d.maxPM10, 1) : String("null"));
     out += "}";
   }
   out += "]}";
@@ -1500,7 +1787,9 @@ void handleApiDays() {
 }
 
 void handleApiConfig() {
-  String out = "{";
+  String out;
+  out.reserve(4096);
+  out = "{";
 
   // Plots configuration
   out += "\"plots\":[";
@@ -1540,7 +1829,8 @@ void handleApiConfig() {
     out += "\"unit\":\"" + String(c.unit) + "\",";
     out += "\"conversionFactor\":" + String(c.conversionFactor, 3) + ",";
     out += "\"decimals\":" + String(c.decimals) + ",";
-    out += "\"bgColor\":\"" + String(c.bgColor) + "\"";
+    out += "\"bgColor\":\"" + String(c.bgColor) + "\",";
+    out += "\"group\":\"" + String(c.group) + "\"";
     out += "}";
   }
   out += "],";
@@ -1550,6 +1840,37 @@ void handleApiConfig() {
   out += "\"maxPlotPoints\":" + String(UIConfig::MAX_PLOT_POINTS);
 
   out += "}";
+  server.send(200, "application/json", out);
+}
+
+void handleApiUiFiles() {
+  if (!gSdOk) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"sd_not_available\"}");
+    return;
+  }
+
+  String out = "{\"ok\":true,\"files\":[";
+  bool first = true;
+
+  const char* webFiles[] = {"/web/index.html", "/web/app.js"};
+  for (int i = 0; i < 2; i++) {
+    const char* path = webFiles[i];
+    if (SD.exists(path)) {
+      File f = SD.open(path, FILE_READ);
+      if (f) {
+        if (!first) out += ",";
+        first = false;
+        out += "{";
+        out += "\"path\":\"" + String(path) + "\",";
+        out += "\"size\":" + String((uint32_t)f.size()) + ",";
+        out += "\"lastModified\":" + String((uint32_t)f.getLastWrite());
+        out += "}";
+        f.close();
+      }
+    }
+  }
+
+  out += "]}";
   server.send(200, "application/json", out);
 }
 
@@ -1685,7 +2006,7 @@ void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay) {
   ensureDir("/data");
   File f = SD.open("/data/day_summaries_cache.csv", FILE_WRITE);
   if (!f) return;
-  f.print("dayStartEpoch,avgWind,maxWind,avgTemp,minTemp,maxTemp,avgHum,minHum,maxHum,avgPress,minPress,maxPress\n");
+  f.print("dayStartEpoch,avgWind,maxWind,avgTemp,minTemp,maxTemp,avgHum,minHum,maxHum,avgPress,minPress,maxPress,avgPM1,maxPM1,avgPM25,maxPM25,avgPM10,maxPM10\n");
   auto writeRow = [&](const DaySummary& d){
     if (!timeIsValid(d.dayStartEpoch)) return;
     f.print((uint32_t)d.dayStartEpoch); f.print(",");
@@ -1699,7 +2020,13 @@ void saveDaySummariesCache(const DaySummary* curDay, bool hasCurDay) {
     f.print(isfinite(d.maxHum) ? String(d.maxHum,2) : String("")); f.print(",");
     f.print(isfinite(d.avgPress) ? String(d.avgPress,2) : String("")); f.print(",");
     f.print(isfinite(d.minPress) ? String(d.minPress,2) : String("")); f.print(",");
-    f.print(isfinite(d.maxPress) ? String(d.maxPress,2) : String(""));
+    f.print(isfinite(d.maxPress) ? String(d.maxPress,2) : String("")); f.print(",");
+    f.print(isfinite(d.avgPM1) ? String(d.avgPM1,1) : String("")); f.print(",");
+    f.print(isfinite(d.maxPM1) ? String(d.maxPM1,1) : String("")); f.print(",");
+    f.print(isfinite(d.avgPM25) ? String(d.avgPM25,1) : String("")); f.print(",");
+    f.print(isfinite(d.maxPM25) ? String(d.maxPM25,1) : String("")); f.print(",");
+    f.print(isfinite(d.avgPM10) ? String(d.avgPM10,1) : String("")); f.print(",");
+    f.print(isfinite(d.maxPM10) ? String(d.maxPM10,1) : String(""));
     f.print("\n");
   };
   if (hasCurDay && curDay) writeRow(*curDay);
@@ -1725,8 +2052,8 @@ bool loadDaySummariesCache() {
     line.trim();
     if (!line.length()) continue;
     if (first) { first = false; if (line.startsWith("dayStartEpoch")) continue; }
-    String parts[12];
-    int numParts = splitCSVLine(line, parts, 12) ? 12 : 0;
+    String parts[18];
+    int numParts = splitCSVLine(line, parts, 18) ? 18 : 0;
     if (numParts < 9) continue;  // Need at least 9 fields for backward compatibility
     DaySummary d{};
     d.dayStartEpoch = (time_t)parts[0].toInt();
@@ -1743,6 +2070,13 @@ bool loadDaySummariesCache() {
     d.avgPress = (numParts > 9 && parts[9].length()) ? parts[9].toFloat() : NAN;
     d.minPress = (numParts > 10 && parts[10].length()) ? parts[10].toFloat() : NAN;
     d.maxPress = (numParts > 11 && parts[11].length()) ? parts[11].toFloat() : NAN;
+    // PM fields (optional for backward compatibility)
+    d.avgPM1 = (numParts > 12 && parts[12].length()) ? parts[12].toFloat() : NAN;
+    d.maxPM1 = (numParts > 13 && parts[13].length()) ? parts[13].toFloat() : NAN;
+    d.avgPM25 = (numParts > 14 && parts[14].length()) ? parts[14].toFloat() : NAN;
+    d.maxPM25 = (numParts > 15 && parts[15].length()) ? parts[15].toFloat() : NAN;
+    d.avgPM10 = (numParts > 16 && parts[16].length()) ? parts[16].toFloat() : NAN;
+    d.maxPM10 = (numParts > 17 && parts[17].length()) ? parts[17].toFloat() : NAN;
     gDays[gDayWrite] = d;
     gDayWrite = (gDayWrite + 1) % LogConfig::DAYS_HISTORY;
     if (gDaysCount < (uint32_t)LogConfig::DAYS_HISTORY) gDaysCount++;
@@ -1821,6 +2155,13 @@ static void pollBMEIfNeeded(uint32_t msNow) {
   gLastBmePollMillis += BME280Config::POLL_INTERVAL_MS;
 }
 
+static void pollPMSIfNeeded(uint32_t msNow) {
+  if (!PMS5003Config::ENABLE) return;
+  if (msNow - gLastPmsPollMillis < PMS5003Config::POLL_INTERVAL_MS) return;
+  pollPMS();
+  gLastPmsPollMillis += PMS5003Config::POLL_INTERVAL_MS;
+}
+
 static void processBucketCatchup(time_t nowE) {
   time_t aligned = floorToBucketBoundaryLocal(nowE);
   if (!timeIsValid(gCurrentBucketStart)) startBucketAt(aligned);
@@ -1842,6 +2183,10 @@ static void processBucketCatchup(time_t nowE) {
     gBucketHumSum = 0.0f;
     gBucketPressSumPa = 0.0f;
     gBucketEnvSamples = 0;
+    gBucketPM1Sum = 0.0f;
+    gBucketPM25Sum = 0.0f;
+    gBucketPM10Sum = 0.0f;
+    gBucketPmSamples = 0;
     bucketsProcessed++;
     if ((bucketsProcessed % 2) == 0) {
       server.handleClient();
@@ -1896,6 +2241,13 @@ void setup() {
     }
   }
 
+  // Initialize PMS5003 on Serial2
+  if (PMS5003Config::ENABLE) {
+    Serial2.begin(9600, SERIAL_8N1, PMS5003Config::RX_PIN, PMS5003Config::TX_PIN);
+    gPmsOk = true;  // Sensor ready (no handshake needed)
+    Serial.println("PMS5003 UART initialized");
+  }
+
   initSD();
 
   time_t nowE = epochNow();
@@ -1916,6 +2268,7 @@ void setup() {
 
   gLastPpsMillis = millis();
   gLastBmePollMillis = millis();
+  gLastPmsPollMillis = millis();
 
   // routes
   server.on("/", handleRoot);
@@ -1925,6 +2278,7 @@ void setup() {
   server.on("/api/buckets_ui", handleApiBucketsUi);  // Compact format for internal UI
   server.on("/api/days", handleApiDays);
   server.on("/api/config", handleApiConfig);
+  server.on("/api/ui_files", handleApiUiFiles);
   server.on("/api_help", handleApiHelp);
   server.on("/api/clear_data", HTTP_POST, handleApiClearData);
   server.on("/api/delete", HTTP_POST, handleApiDelete);
@@ -1960,6 +2314,7 @@ void loop() {
 
   updateWindPPS(msNow);
   pollBMEIfNeeded(msNow);
+  pollPMSIfNeeded(msNow);
 
   time_t nowE = epochNow();
   maybeRolloverDay(nowE);

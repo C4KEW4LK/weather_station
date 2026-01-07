@@ -62,15 +62,17 @@ td,th {
   z-index:4;
 }
 
-.table-scroll :is(th,td):first-child {
+.table-scroll tbody tr > :first-child,
+.table-scroll thead tr:first-child > th:first-child {
   position:sticky;
   left:0;
   background:#fff;
   z-index:2;
 }
-.table-scroll thead th:first-child { z-index:3; }
+.table-scroll thead tr:first-child > th:first-child { z-index:3; }
 
-.table-scroll :is(th,td):first-child::after {
+tbody tr :is(th,td):first-child::after,
+thead tr:first-child th:first-child::after {
   content:'';
   position:absolute;
   inset:0 0 0 auto;
@@ -149,6 +151,9 @@ code {
 @media (min-width:1600px) {
   .plots-grid { grid-template-columns:repeat(4,minmax(330px,1fr)); }
 }
+@media (pointer: coarse) {
+  .plots-grid { row-gap:50px; }
+}
 
 .divider {
   width:1px;
@@ -198,13 +203,17 @@ code {
       </div>
 
       <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
-        <span class="pill">Uptime: <span id="uptime">--</span></span>
-        <span class="pill">PPS: <span id="pps">--</span></span>
-        <span class="pill">Bucket: <span id="bucket_sec">--</span>s</span>
-        <span class="pill">BME280: <span id="bmeok">--</span></span>
-        <span class="pill">SD: <span id="sdok">--</span></span>
-        <span class="pill">WiFi: <span id="wifi">--</span> dBm (<span id="wifi_quality">--</span>)</span>
-        <span class="pill">RAM: <span id="ram">--</span></span>
+        <span class="pill" style="font-weight:700;">Uptime: <span id="uptime">--</span></span>
+        <span class="pill" style="font-weight:700;">PPS: <span id="pps">--</span></span>
+        <span class="pill" style="font-weight:700;">Bucket: <span id="bucket_sec">--</span>s</span>
+        <span class="pill" id="bmeok_pill" style="font-weight:700;">BME280: <span id="bmeok">--</span></span>
+        <span class="pill" id="pmsok_pill" style="font-weight:700;">Particle Sensor: <span id="pmsok">--</span></span>
+        <span class="pill" id="sdok_pill" style="font-weight:700;">SD Card: <span id="sdok">--</span></span>
+        <span class="pill" id="wifi_pill" style="font-weight:700;">WiFi: <span id="wifi">--</span> dBm (<span id="wifi_quality">--</span>)</span>
+        <span class="pill" id="ram_pill" style="font-weight:700;">RAM: <span id="ram">--</span></span>
+        <span class="pill" id="cpu_temp_pill" style="font-weight:700;">CPU Temp: <span id="cpu_temp">--</span>°C</span>
+        <span class="pill" id="aqi_pm25_pill" style="font-weight:700;">PM2.5 AQI: <span id="aqi_pm25">--</span> - <span id="aqi_pm25_cat">--</span></span>
+        <span class="pill" id="aqi_pm10_pill" style="font-weight:700;">PM10 AQI: <span id="aqi_pm10">--</span> - <span id="aqi_pm10_cat">--</span></span>
       </div>
     </div>
   </div>
@@ -265,7 +274,7 @@ code {
       <div class="btnrow flex-between">
         <button onclick="window.location='/api_help'">API reference</button>
         <div style="display:flex; gap:8px;">
-          <button onclick="window.location='/upload'">Upload web files</button>
+          <button onclick="window.location='/upload'">Upload UI files</button>
           <button style="background:#fee; border-color:#f5a3a3; color:#a00" onclick="clearSdData()">Clear SD data</button>
           <button style="background:#eef; border-color:#a3b5f5; color:#003399" onclick="rebootDevice()">Reboot</button>
         </div>

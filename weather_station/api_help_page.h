@@ -32,14 +32,25 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
   "local_time": "2025-12-18 22:25",
   "wind_pps": 0.7,
   "wind_ms": 1.2,
-  "wind_max_since_boot": 5.4,
   "bme280_ok": true,
   "temp_c": 23.4,
   "hum_rh": 55.1,
   "press_hpa": 1012.3,
+  "pms5003_ok": true,
+  "pm1": 5.2,
+  "pm25": 12.8,
+  "pm10": 18.4,
+  "aqi_pm25": 52,
+  "aqi_pm25_category": "Moderate",
+  "aqi_pm10": 45,
+  "aqi_pm10_category": "Good",
   "sd_ok": true,
-  "uptime_ms": 1234567,
-  "retention_days": 360
+  "cpu_temp_c": 45.2,
+  "uptime_s": 12345,
+  "retention_days": 360,
+  "wifi_rssi": -65,
+  "free_heap": 245000,
+  "heap_size": 327680
 }</code></pre>
   </div>
 
@@ -55,27 +66,32 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
       "w": {"a": 0.8, "m": 2.1, "s": 12},
       "T": 22.9,
       "H": 56.0,
-      "P": 1012.1
+      "P": 1012.1,
+      "pm1": 5.2,
+      "pm25": 12.8,
+      "pm10": 18.4
     }
   ]
 }
-Keys: t=time, w.a=avgWind, w.m=maxWind, w.s=samples, T=temp, H=humidity, P=pressure</code></pre>
+Keys: t=time, w.a=avgWind, w.m=maxWind, w.s=samples, T=temp, H=humidity, P=pressure,
+pm1/pm25/pm10=particulate matter (μg/m³)</code></pre>
   </div>
 
   <div class="card">
     <div><code>/api/buckets_ui</code></div>
     <div class="muted">Compact array format (no keys). Full precision floats. Chunked with batching.<br>
-    Array: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa]</div>
+    Array: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa, pm1, pm25, pm10]</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "now_epoch": 1734492345,
   "bucket_seconds": 60,
   "buckets": [
-    [1734489600, 0.8, 2.1, 12, 22.9, 56.0, 1012.1]
+    [1734489600, 0.8, 2.1, 12, 22.9, 56.0, 1012.1, 5.2, 12.8, 18.4]
   ]
 }
 Array indices:
 [0]=epoch, [1]=avgWind(m/s), [2]=maxWind(m/s), [3]=samples,
-[4]=temp(°C), [5]=humidity(%), [6]=pressure(hPa)</code></pre>
+[4]=temp(°C), [5]=humidity(%), [6]=pressure(hPa),
+[7]=PM1.0(μg/m³), [8]=PM2.5(μg/m³), [9]=PM10(μg/m³)</code></pre>
   </div>
 
   <div class="card">
@@ -93,7 +109,16 @@ Array indices:
       "maxTemp": 28.0,
       "avgHum": 58.2,
       "minHum": 44.0,
-      "maxHum": 71.5
+      "maxHum": 71.5,
+      "avgPress": 1012.5,
+      "minPress": 1008.2,
+      "maxPress": 1016.8,
+      "avgPM1": 5.3,
+      "maxPM1": 8.2,
+      "avgPM25": 12.4,
+      "maxPM25": 18.9,
+      "avgPM10": 18.1,
+      "maxPM10": 25.7
     }
   ]
 }</code></pre>
@@ -116,16 +141,16 @@ Array indices:
   </div>
 
   <div class="card">
-    <div><code>/api/reboot</code> (POST)</div>
-    <div class="muted">Immediate reboot of the device.</div>
+    <div><code>/api/reboot</code> (POST, pw)</div>
+    <div class="muted">Immediate reboot of the device. Requires <code>pw</code>.</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "ok": true
 }</code></pre>
   </div>
 
   <div class="card">
-    <div><code>/api/files?dir=data</code></div>
-    <div class="muted">List CSV files in <code>/data</code>.</div>
+    <div><code>/api/files</code></div>
+    <div class="muted">List CSV files in <code>/data</code> directory. Always uses <code>dir=data</code>.</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "ok": true,
   "dir": "data",
@@ -137,13 +162,39 @@ Array indices:
   </div>
 
   <div class="card">
+    <div><code>/api/ui_files</code></div>
+    <div class="muted">Get web UI file details (size and last modified timestamp).</div>
+    <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
+  "ok": true,
+  "files": [
+    { "path": "/web/index.html", "size": 8192, "lastModified": 1734492345 },
+    { "path": "/web/app.js", "size": 45678, "lastModified": 1734492350 }
+  ]
+}</code></pre>
+  </div>
+
+  <div class="card">
     <div><code>/download?path=/data/YYYYMMDD.csv</code></div>
-    <div class="muted">Download a specific CSV.</div>
+    <div class="muted">Download a specific CSV from <code>/data</code> directory.</div>
   </div>
 
   <div class="card">
     <div><code>/download_zip?days=N</code></div>
     <div class="muted">Stream a ZIP of the last N daily CSVs (<code>/data</code> directory).</div>
+  </div>
+
+  <div class="card">
+    <div><code>/upload</code> (GET)</div>
+    <div class="muted">Display the file upload page for uploading web files (index.html, app.js) to the SD card.</div>
+  </div>
+
+  <div class="card">
+    <div><code>/upload</code> (POST, pw)</div>
+    <div class="muted">Upload files to the SD card. Requires multipart form data with <code>file</code>, <code>path</code>, and <code>pw</code> fields.</div>
+    <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
+  "ok": true,
+  "bytes": 12345
+}</code></pre>
   </div>
 </body>
 </html>

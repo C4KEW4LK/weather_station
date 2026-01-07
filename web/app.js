@@ -4,67 +4,7 @@ let PLOT_KEYS = [];
 let FILES_PER_PAGE = 30;
 let MAX_PLOT_POINTS = 500;
 
-// Debug panel for mobile debugging
-let debugPanel = null;
-let debugLogs = [];
-
-function createDebugPanel() {
-  if (debugPanel) return;
-
-  debugPanel = document.createElement('div');
-  debugPanel.id = 'debug_panel';
-  debugPanel.style.cssText = `
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    max-height: 300px;
-    overflow-y: auto;
-    background: rgba(0,0,0,0.9);
-    color: #0f0;
-    font-family: monospace;
-    font-size: 11px;
-    padding: 10px;
-    z-index: 10000;
-    border-top: 2px solid #0f0;
-    display: none;
-  `;
-
-  const toggleBtn = document.createElement('button');
-  toggleBtn.textContent = 'Debug';
-  toggleBtn.style.cssText = `
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    z-index: 10001;
-    background: #000;
-    color: #0f0;
-    border: 1px solid #0f0;
-    padding: 8px 12px;
-    font-size: 12px;
-    cursor: pointer;
-  `;
-  toggleBtn.onclick = () => {
-    debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
-  };
-
-  document.body.appendChild(debugPanel);
-  document.body.appendChild(toggleBtn);
-}
-
 function debugLog(msg, data = null) {
-  const timestamp = new Date().toLocaleTimeString();
-  const logMsg = data ? `[${timestamp}] ${msg}: ${JSON.stringify(data)}` : `[${timestamp}] ${msg}`;
-
-  debugLogs.push(logMsg);
-  if (debugLogs.length > 100) debugLogs.shift();
-
-  if (debugPanel) {
-    debugPanel.innerHTML = debugLogs.map(l => `<div>${l}</div>`).join('');
-    debugPanel.scrollTop = debugPanel.scrollHeight;
-  }
-
-  // Also log to console
   console.log(msg, data || '');
 }
 
@@ -136,21 +76,38 @@ function getDefaultConfig() {
         unit: "hPa",
         conversionFactor: 1.0,
         series: [{ field: "avgPressHpa", color: "#5cb85c", label: "Pressure" }]
+      },
+      {
+        id: "pm",
+        title: "Air Quality (PM)",
+        unit: "μg/m³",
+        conversionFactor: 1.0,
+        series: [
+          { field: "avgPM25", color: "#ff6600", label: "PM2.5" },
+          { field: "avgPM10", color: "#996633", label: "PM10" },
+          { field: "avgPM1", color: "#9966cc", label: "PM1.0" }
+        ]
       }
     ],
     tableColumns: [
-      { field: "day", label: "Day", unit: "", conversionFactor: 1.0, decimals: 0, bgColor: "" },
-      { field: "avgWind", label: "Avg wind", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "#f8f8f8" },
-      { field: "maxWind", label: "Max wind", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "#f8f8f8" },
-      { field: "avgTemp", label: "Avg temp", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "" },
-      { field: "minTemp", label: "Min temp", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "" },
-      { field: "maxTemp", label: "Max temp", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "" },
-      { field: "avgHum", label: "Avg RH", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8" },
-      { field: "minHum", label: "Min RH", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8" },
-      { field: "maxHum", label: "Max RH", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8" },
-      { field: "avgPress", label: "Avg press", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "" },
-      { field: "minPress", label: "Min press", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "" },
-      { field: "maxPress", label: "Max press", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "" }
+      { field: "day", label: "Day", unit: "", conversionFactor: 1.0, decimals: 0, bgColor: "", group: "" },
+      { field: "avgWind", label: "avg", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "#f8f8f8", group: "Wind Speed" },
+      { field: "maxWind", label: "max", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "#f8f8f8", group: "Wind Speed" },
+      { field: "avgTemp", label: "avg", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Temperature" },
+      { field: "minTemp", label: "min", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Temperature" },
+      { field: "maxTemp", label: "max", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Temperature" },
+      { field: "avgHum", label: "avg", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Humidity" },
+      { field: "minHum", label: "min", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Humidity" },
+      { field: "maxHum", label: "max", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Humidity" },
+      { field: "avgPress", label: "avg", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Pressure" },
+      { field: "minPress", label: "min", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Pressure" },
+      { field: "maxPress", label: "max", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Pressure" },
+      { field: "avgPM1", label: "PM1 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
+      { field: "maxPM1", label: "PM1 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
+      { field: "avgPM25", label: "PM2.5 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
+      { field: "maxPM25", label: "PM2.5 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
+      { field: "avgPM10", label: "PM10 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
+      { field: "maxPM10", label: "PM10 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" }
     ],
     filesPerPage: 30,
     maxPlotPoints: 500
@@ -201,11 +158,17 @@ function generatePlots() {
       // Generate correct line IDs
       let lineId;
       if (plot.series.length > 1) {
-        // For multi-series (like wind), use specific names
-        if (s.field.includes('max') || s.field.includes('Max')) {
-          lineId = `line_${plot.id}_max`;
-        } else {
+        // For multi-series plots
+        if (idx === 0) {
           lineId = `line_${plot.id}`;
+        } else if (s.field.includes('max') || s.field.includes('Max')) {
+          lineId = `line_${plot.id}_max`;
+        } else if (s.field.includes('PM10')) {
+          lineId = `line_${plot.id}_pm10`;
+        } else if (s.field.includes('PM1')) {
+          lineId = `line_${plot.id}_pm1`;
+        } else {
+          lineId = `line_${plot.id}_${idx}`;
         }
       } else {
         lineId = `line_${plot.id}`;
@@ -214,7 +177,17 @@ function generatePlots() {
       // Generate correct dot IDs
       let dotId;
       if (plot.series.length > 1) {
-        dotId = `hover_dot_${plot.id}_${s.field.includes('max') || s.field.includes('Max') ? 'max' : 'avg'}`;
+        if (s.field.includes('max') || s.field.includes('Max')) {
+          dotId = `hover_dot_${plot.id}_max`;
+        } else if (s.field.includes('PM10')) {
+          dotId = `hover_dot_${plot.id}_pm10`;
+        } else if (s.field.includes('PM1') && !s.field.includes('PM10')) {
+          dotId = `hover_dot_${plot.id}_pm1`;
+        } else if (idx === 0) {
+          dotId = `hover_dot_${plot.id}_avg`;
+        } else {
+          dotId = `hover_dot_${plot.id}_${idx}`;
+        }
       } else {
         dotId = `hover_dot_${plot.id}`;
       }
@@ -275,22 +248,56 @@ function generateTableHeaders() {
   const thead = document.getElementById('table_header');
   if (!thead) return;
 
-  // First row: labels
-  let row1 = '<tr>';
+  // Calculate group spans with colors
+  const groups = [];
+  let currentGroup = null;
+  let colIdx = 0;
   for (const col of CONFIG.tableColumns) {
-    row1 += `<th>${col.label}</th>`;
+    if (!col.group || col.group === '') {
+      groups.push({ name: '', colspan: 1, bgColor: col.bgColor, startIdx: colIdx });
+      colIdx++;
+    } else if (!currentGroup || currentGroup.name !== col.group) {
+      currentGroup = { name: col.group, colspan: 1, bgColor: col.bgColor, startIdx: colIdx };
+      groups.push(currentGroup);
+      colIdx++;
+    } else {
+      currentGroup.colspan++;
+      colIdx++;
+    }
+  }
+
+  // First row: group headers
+  let row1 = '<tr>';
+  for (const grp of groups) {
+    const bgStyle = grp.bgColor ? ` style="background-color: ${grp.bgColor}"` : '';
+    if (grp.name) {
+      row1 += `<th colspan="${grp.colspan}"${bgStyle}>${grp.name}</th>`;
+    } else {
+      row1 += `<th rowspan="3">${CONFIG.tableColumns[0].label}</th>`;
+    }
   }
   row1 += '</tr>';
 
-  // Second row: units
+  // Second row: sub-labels (avg, max, min)
   let row2 = '<tr>';
-  for (const col of CONFIG.tableColumns) {
-    const unitText = col.unit ? `(${col.unit})` : '';
-    row2 += `<th>${unitText}</th>`;
+  for (let i = 1; i < CONFIG.tableColumns.length; i++) {
+    const col = CONFIG.tableColumns[i];
+    const bgStyle = col.bgColor ? ` style="background-color: ${col.bgColor}"` : '';
+    row2 += `<th${bgStyle}>${col.label}</th>`;
   }
   row2 += '</tr>';
 
-  thead.innerHTML = row1 + row2;
+  // Third row: units
+  let row3 = '<tr>';
+  for (let i = 1; i < CONFIG.tableColumns.length; i++) {
+    const col = CONFIG.tableColumns[i];
+    const unitText = col.unit ? `(${col.unit})` : '';
+    const bgStyle = col.bgColor ? ` style="background-color: ${col.bgColor}"` : '';
+    row3 += `<th${bgStyle}>${unitText}</th>`;
+  }
+  row3 += '</tr>';
+
+  thead.innerHTML = row1 + row2 + row3;
 }
 
 const chartDims = { width: 600, height: 140, padLeft: 60, padRight: 10, padTop: 8, padBottom: 26 };
@@ -298,7 +305,8 @@ const plotState = {
   wind: { series: null, xDomain: null, zoomXDomain: null, label: "Wind", unit: "km/h" },
   temp: { series: null, xDomain: null, zoomXDomain: null, label: "Temp", unit: "°C" },
   hum:  { series: null, xDomain: null, zoomXDomain: null, label: "Humidity", unit: "%" },
-  press:{ series: null, xDomain: null, zoomXDomain: null, label: "Pressure", unit: "hPa" }
+  press:{ series: null, xDomain: null, zoomXDomain: null, label: "Pressure", unit: "hPa" },
+  pm:   { series: null, xDomain: null, zoomXDomain: null, label: "PM", unit: "μg/m³" }
 };
 
 const dragState = {
@@ -354,9 +362,12 @@ function setHoverDot(key, xPx, yPx){
 }
 
 function clearHoverDots(){
-  PLOT_KEYS.slice(1).forEach(k => setHoverDot(k, null, null));
+  PLOT_KEYS.forEach(k => setHoverDot(k, null, null));
   setHoverDot("wind_avg", null, null);
   setHoverDot("wind_max", null, null);
+  setHoverDot("pm_avg", null, null);
+  setHoverDot("pm_pm10", null, null);
+  setHoverDot("pm_pm1", null, null);
 }
 
 function computeDomain(values, fields){
@@ -412,6 +423,10 @@ function filterSeries(values, predicate){
   });
 }
 
+function colorDot(color) {
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};border:1px solid #fff;margin-right:4px;vertical-align:middle;"></span>`;
+}
+
 function hoverPlot(key, evt){
   const state = plotState[key];
   if (!state || !state.series || !state.series.length) return hideTooltip();
@@ -431,7 +446,9 @@ function hoverPlot(key, evt){
     const vAvg = (key === "wind") ? item.avgWind :
                  (key === "temp") ? item.avgTempC :
                  (key === "hum") ? item.avgHumRH :
-                 item.avgPressHpa;
+                 (key === "press") ? item.avgPressHpa :
+                 (key === "pm") ? item.avgPM25 : // Use PM2.5 as primary for PM plots
+                 null;
     const vMax = (key === "wind") ? item.maxWind : null;
     if (vAvg === null || vAvg === undefined || !isFinite(vAvg)) continue;
     const e = item.startEpoch ? Number(item.startEpoch) : NaN;
@@ -446,12 +463,26 @@ function hoverPlot(key, evt){
   const date = new Date(best.e * 1000);
   const hh = date.getHours().toString().padStart(2, "0");
   const mm = date.getMinutes().toString().padStart(2, "0");
-  let txt = `${state.label}: ${best.vAvg.toFixed(1)} ${state.unit}`;
-  if (key === "wind" && best.vMax !== null && best.vMax !== undefined && isFinite(best.vMax)) {
-    txt += ` (max ${best.vMax.toFixed(1)})`;
+  let txt = '';
+  txt = `@ ${hh}:${mm}`;
+  if (key === "pm") {
+    // Show all three PM values with colored dots
+    const pm25 = best.item.avgPM25;
+    const pm10 = best.item.avgPM10;
+    const pm1 = best.item.avgPM1;
+    txt += `<br>${colorDot('#ff6600')}PM2.5: ${isFinite(pm25) ? pm25.toFixed(1) : '--'} ${state.unit}`;
+    txt += `<br>${colorDot('#996633')}PM10: ${isFinite(pm10) ? pm10.toFixed(1) : '--'} ${state.unit}`;
+    txt += `<br>${colorDot('#9966cc')}PM1.0: ${isFinite(pm1) ? pm1.toFixed(1) : '--'} ${state.unit}`;
+  } else if (key === "wind") {
+    // Show wind with colored dots
+    txt += `<br>${colorDot('black')}Wind: ${best.vAvg.toFixed(1)} ${state.unit}`;
+    if (best.vMax !== null && best.vMax !== undefined && isFinite(best.vMax)) {
+      txt += `<br>${colorDot('#f0ad4e')}Gust: ${best.vMax.toFixed(1)} ${state.unit}`;
+    }
+  } else {
+    txt += `<br>${state.label}: ${best.vAvg.toFixed(1)} ${state.unit}`;
   }
-  txt += ` @ ${hh}:${mm}`;
-  tooltipEl.textContent = txt;
+  tooltipEl.innerHTML = txt;
   tooltipEl.style.display = "block";
 
   const cursorFraction = (evt.clientX - rect.left) / rect.width;
@@ -468,9 +499,11 @@ function hoverPlot(key, evt){
       return isFinite(e) && e >= state.zoomXDomain.min && e <= state.zoomXDomain.max;
     }) : state.series;
     const domainData = visibleSeries.length > 0 ? visibleSeries : state.series;
-    const domain = state.label === "Wind" ? computeDomain(domainData, ["avgWind","maxWind"]) :
-                   state.label === "Temp" ? computeDomain(domainData, ["avgTempC"]) :
+    const domain = state.label === "Wind Speed" ? computeDomain(domainData, ["avgWind","maxWind"]) :
+                   state.label === "Temperature" ? computeDomain(domainData, ["avgTempC"]) :
                    state.label === "Humidity" ? computeDomain(domainData, ["avgHumRH"]) :
+                   state.label === "Pressure" ? computeDomain(domainData, ["avgPressHpa"]) :
+                   state.label === "Air Quality (PM)" ? computeDomain(domainData, ["avgPM1","avgPM25","avgPM10"]) :
                    computeDomain(domainData, ["avgPressHpa"]);
     const spanY = domain.max - domain.min;
     if (spanY > 0 && isFinite(spanY)) {
@@ -481,13 +514,33 @@ function hoverPlot(key, evt){
         const normYMax = (best.vMax - domain.min) / spanY;
         const yPxMax = dims.height - dims.padBottom - normYMax * yRange;
         setHoverDot("wind_max", xPx, yPxMax);
+      } else if (key === "pm") {
+        // Position dots for all three PM series
+        const pm25 = best.item.avgPM25;
+        const pm10 = best.item.avgPM10;
+        const pm1 = best.item.avgPM1;
+        if (isFinite(pm25)) {
+          const normYPM25 = (pm25 - domain.min) / spanY;
+          const yPxPM25 = dims.height - dims.padBottom - normYPM25 * yRange;
+          setHoverDot("pm_avg", xPx, yPxPM25);
+        }
+        if (isFinite(pm10)) {
+          const normYPM10 = (pm10 - domain.min) / spanY;
+          const yPxPM10 = dims.height - dims.padBottom - normYPM10 * yRange;
+          setHoverDot("pm_pm10", xPx, yPxPM10);
+        }
+        if (isFinite(pm1)) {
+          const normYPM1 = (pm1 - domain.min) / spanY;
+          const yPxPM1 = dims.height - dims.padBottom - normYPM1 * yRange;
+          setHoverDot("pm_pm1", xPx, yPxPM1);
+        }
       }
     }
   }
   setHoverLine(key, xPx);
   if (key === "wind") {
     setHoverDot("wind_avg", xPx, yPx);
-  } else {
+  } else if (key !== "pm") {
     setHoverDot(key, xPx, yPx);
   }
 }
@@ -949,6 +1002,64 @@ function renderWind(values){
   plotState.wind.xDomain = xDomain;
 }
 
+function renderPM(values){
+  const filtered = filterSeries(values, v => {
+    const pm1 = v ? v.avgPM1 : null;
+    const pm25 = v ? v.avgPM25 : null;
+    const pm10 = v ? v.avgPM10 : null;
+    return (pm1 !== null && pm1 !== undefined && isFinite(pm1)) ||
+           (pm25 !== null && pm25 !== undefined && isFinite(pm25)) ||
+           (pm10 !== null && pm10 !== undefined && isFinite(pm10));
+  });
+  if (!filtered.length){
+    ["line_pm","line_pm_pm10","line_pm_pm1"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.setAttribute("points", "");
+    });
+    clearAxis("axis_pm");
+    clearAxis("axis_x_pm");
+    if (plotState.pm) {
+      plotState.pm.series = null;
+      plotState.pm.xDomain = null;
+    }
+    return;
+  }
+
+  const xDomain = computeTimeDomain(filtered);
+  const displayDomain = (plotState.pm && plotState.pm.zoomXDomain) ? plotState.pm.zoomXDomain : xDomain;
+
+  const visibleData = displayDomain ? filtered.filter(v => {
+    const e = v ? Number(v.startEpoch) : NaN;
+    return isFinite(e) && e >= displayDomain.min && e <= displayDomain.max;
+  }) : filtered;
+
+  const domain = computeDomain(visibleData.length > 0 ? visibleData : filtered, ["avgPM1", "avgPM25", "avgPM10"]);
+  const hasValid = Number.isFinite(domain.min) && Number.isFinite(domain.max);
+  if (!hasValid){
+    ["line_pm","line_pm_pm10","line_pm_pm1"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.setAttribute("points", "");
+    });
+    clearAxis("axis_pm");
+    clearAxis("axis_x_pm");
+    if (plotState.pm) {
+      plotState.pm.series = null;
+      plotState.pm.xDomain = null;
+    }
+    return;
+  }
+
+  renderAxis("axis_pm", domain);
+  renderXAxis("axis_x_pm", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM25", "line_pm", domain, chartDims, "#ff6600", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM10", "line_pm_pm10", domain, chartDims, "#996633", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM1", "line_pm_pm1", domain, chartDims, "#9966cc", displayDomain);
+  if (plotState.pm) {
+    plotState.pm.series = filtered;
+    plotState.pm.xDomain = xDomain;
+  }
+}
+
 function renderDays(days){
   const tb = document.getElementById("days");
   tb.innerHTML = "";
@@ -989,11 +1100,10 @@ function numOrDash(v, digits=1){
   return Number(v).toFixed(digits);
 }
 
-function formatUptime(ms){
-  if (!isFinite(ms) || ms < 0) return "--";
-  const totalSec = Math.floor(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const totalMin = Math.floor(totalSec / 60);
+function formatUptime(sec){
+  if (!isFinite(sec) || sec < 0) return "--";
+  if (sec < 60) return `${sec}s`;
+  const totalMin = Math.floor(sec / 60);
   if (totalMin < 60) return `${totalMin}m`;
   const totalHours = Math.floor(totalMin / 60);
   if (totalHours < 24) {
@@ -1178,9 +1288,18 @@ async function clearSdData(){
 }
 
 async function rebootDevice(){
+  const pw = prompt("Password required to reboot device:");
+  if (!(pw && pw.trim().length)) {
+    alert("Password required.");
+    return;
+  }
   if (!confirm("Reboot the device now?")) return;
   try{
-    const res = await fetch("/api/reboot", { method: "POST" });
+    const res = await fetch("/api/reboot", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `pw=${encodeURIComponent(pw.trim())}`
+    });
     if (res.ok){
       alert("Rebooting...");
     } else {
@@ -1198,23 +1317,133 @@ async function tick(){
     const windKmh = toKmh(now.wind_ms);
     document.getElementById("now").textContent = numOrDash(windKmh, 1);
     document.getElementById("pps").textContent = numOrDash(now.wind_pps, 1);
-    document.getElementById("uptime").textContent = formatUptime(now.uptime_ms);
+    document.getElementById("uptime").textContent = formatUptime(now.uptime_s);
     document.getElementById("tlocal").textContent = now.local_time || "--";
 
     document.getElementById("temp").textContent = numOrDash(now.temp_c, 1);
     document.getElementById("rh").textContent = numOrDash(now.hum_rh, 1);
     document.getElementById("pres").textContent = numOrDash(now.press_hpa, 1);
 
+    // Sensor status pills with colors
     document.getElementById("bmeok").textContent = now.bme280_ok ? "OK" : "ERR";
+    const bmeokPill = document.getElementById("bmeok_pill");
+    if (now.bme280_ok) {
+      bmeokPill.style.background = "#5cb85c";
+      bmeokPill.style.color = "#fff";
+    } else {
+      bmeokPill.style.background = "#d9534f";
+      bmeokPill.style.color = "#fff";
+    }
+
+    document.getElementById("pmsok").textContent = now.pms5003_ok ? "OK" : "ERR";
+    const pmsokPill = document.getElementById("pmsok_pill");
+    if (now.pms5003_ok) {
+      pmsokPill.style.background = "#5cb85c";
+      pmsokPill.style.color = "#fff";
+    } else {
+      pmsokPill.style.background = "#d9534f";
+      pmsokPill.style.color = "#fff";
+    }
+
     document.getElementById("sdok").textContent  = now.sd_ok ? "OK" : "ERR";
+    const sdokPill = document.getElementById("sdok_pill");
+    if (now.sd_ok) {
+      sdokPill.style.background = "#5cb85c";
+      sdokPill.style.color = "#fff";
+    } else {
+      sdokPill.style.background = "#d9534f";
+      sdokPill.style.color = "#fff";
+    }
+
+    // WiFi pill with colors based on quality
     document.getElementById("wifi").textContent = now.wifi_rssi !== null && now.wifi_rssi !== undefined ? String(now.wifi_rssi) : "--";
     document.getElementById("wifi_quality").textContent = wifiQuality(now.wifi_rssi);
+    const wifiPill = document.getElementById("wifi_pill");
+    if (now.wifi_rssi !== null && now.wifi_rssi !== undefined && isFinite(now.wifi_rssi)) {
+      if (now.wifi_rssi >= -60) { // Excellent or Good
+        wifiPill.style.background = "#5cb85c";
+        wifiPill.style.color = "#fff";
+      } else if (now.wifi_rssi >= -70) { // Fair
+        wifiPill.style.background = "#f0ad4e";
+        wifiPill.style.color = "#000";
+      } else { // Weak
+        wifiPill.style.background = "#d9534f";
+        wifiPill.style.color = "#fff";
+      }
+    } else {
+      wifiPill.style.background = "";
+      wifiPill.style.color = "";
+    }
 
+    // Helper function to set AQI pill color and text
+    function setAQIPill(pillId, aqiId, catId, aqiValue, category) {
+      document.getElementById(aqiId).textContent = aqiValue;
+      document.getElementById(catId).textContent = category;
+
+      const pill = document.getElementById(pillId);
+      if (aqiValue <= 50) {
+        pill.style.background = "#5cb85c"; // Good - green
+        pill.style.color = "#fff";
+      } else if (aqiValue <= 100) {
+        pill.style.background = "#f0ad4e"; // Moderate - yellow
+        pill.style.color = "#000";
+      } else {
+        pill.style.background = "#d9534f"; // Unhealthy+ - red
+        pill.style.color = "#fff";
+      }
+    }
+
+    // Update PM2.5 AQI pill
+    const aqiPM25 = now.aqi_pm25 !== null && now.aqi_pm25 !== undefined ? now.aqi_pm25 : 0;
+    const aqiPM25Cat = now.aqi_pm25_category || "--";
+    setAQIPill("aqi_pm25_pill", "aqi_pm25", "aqi_pm25_cat", aqiPM25, aqiPM25Cat);
+
+    // Update PM10 AQI pill
+    const aqiPM10 = now.aqi_pm10 !== null && now.aqi_pm10 !== undefined ? now.aqi_pm10 : 0;
+    const aqiPM10Cat = now.aqi_pm10_category || "--";
+    setAQIPill("aqi_pm10_pill", "aqi_pm10", "aqi_pm10_cat", aqiPM10, aqiPM10Cat);
+
+    // RAM pill with colors based on usage
     const freeHeap = now.free_heap !== null && now.free_heap !== undefined ? now.free_heap : 0;
     const heapSize = now.heap_size !== null && now.heap_size !== undefined ? now.heap_size : 0;
     const usedHeap = heapSize > 0 ? heapSize - freeHeap : 0;
     const pctUsed = heapSize > 0 ? Math.round((usedHeap / heapSize) * 100) : 0;
     document.getElementById("ram").textContent = heapSize > 0 ? `${bytesPretty(freeHeap)} free (${pctUsed}% used)` : "--";
+    const ramPill = document.getElementById("ram_pill");
+    if (heapSize > 0) {
+      if (pctUsed > 90) {
+        ramPill.style.background = "#d9534f";
+        ramPill.style.color = "#fff";
+      } else if (pctUsed > 75) {
+        ramPill.style.background = "#f0ad4e";
+        ramPill.style.color = "#000";
+      } else {
+        ramPill.style.background = "#5cb85c";
+        ramPill.style.color = "#fff";
+      }
+    } else {
+      ramPill.style.background = "";
+      ramPill.style.color = "";
+    }
+
+    // CPU temp pill with colors
+    document.getElementById("cpu_temp").textContent = numOrDash(now.cpu_temp_c, 1);
+    const cpuTempPill = document.getElementById("cpu_temp_pill");
+    if (now.cpu_temp_c !== null && now.cpu_temp_c !== undefined && isFinite(now.cpu_temp_c)) {
+      if (now.cpu_temp_c > 90) {
+        cpuTempPill.style.background = "#d9534f";
+        cpuTempPill.style.color = "#fff";
+      } else if (now.cpu_temp_c > 70) {
+        cpuTempPill.style.background = "#f0ad4e";
+        cpuTempPill.style.color = "#000";
+      } else {
+        cpuTempPill.style.background = "#5cb85c";
+        cpuTempPill.style.color = "#fff";
+      }
+    } else {
+      cpuTempPill.style.background = "";
+      cpuTempPill.style.color = "";
+    }
 
     const [bucketsRes, daysRes] = await Promise.allSettled([
       fetchJSON("/api/buckets_ui", { timeoutMs: 10000 }),
@@ -1228,7 +1457,7 @@ async function tick(){
       debugLog('Valid buckets', {count: series.length});
       series = series.map(b => {
         // Convert array format to object format
-        // Array format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa]
+        // Array format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa, pm1, pm25, pm10]
         // All values are already in full precision (no conversion needed)
         return {
           startEpoch: b[0],
@@ -1237,7 +1466,10 @@ async function tick(){
           samples: b[3] || 0,
           avgTempC: b[4],
           avgHumRH: b[5],
-          avgPressHpa: b[6]
+          avgPressHpa: b[6],
+          avgPM1: b.length > 7 ? b[7] : null,
+          avgPM25: b.length > 8 ? b[8] : null,
+          avgPM10: b.length > 9 ? b[9] : null
         };
       });
       if (series.length > 0) debugLog('Sample data', series[0]);
@@ -1248,6 +1480,7 @@ async function tick(){
       renderSingleSeries(series, "avgTempC", "line_temp", "#d9534f", "axis_temp", "axis_x_temp");
       renderSingleSeries(series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");
       renderSingleSeries(series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
+      renderPM(series);
       debugLog('Plots rendered');
     } else {
       debugLog("Buckets failed", {error: bucketsRes.reason?.message});
@@ -1266,9 +1499,6 @@ async function tick(){
 
 // Initialize application
 (async function init() {
-  // Create debug panel first
-  createDebugPanel();
-
   try {
     debugLog('Initializing app');
     debugLog('User Agent', {ua: navigator.userAgent.substring(0, 100)});

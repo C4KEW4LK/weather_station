@@ -21,6 +21,14 @@ namespace BME280Config {
   static constexpr uint32_t POLL_INTERVAL_MS = 2000;
 }
 
+// PMS5003 Air Quality Sensor (UART)
+namespace PMS5003Config {
+  static constexpr bool     ENABLE = true;
+  static constexpr int      RX_PIN = 4;
+  static constexpr int      TX_PIN = 5;  // Not used, but required for Serial2.begin()
+  static constexpr uint32_t POLL_INTERVAL_MS = 2000;  // Poll every 2 seconds
+}
+
 // SD Card (SPI)
 namespace SDConfig {
   static constexpr bool ENABLE = true;
@@ -66,7 +74,7 @@ struct PlotConfig {
   const char* title;       // Display title
   const char* unit;        // Unit string (e.g., "km/h", "°C")
   float conversionFactor;  // Multiply data by this (e.g., 3.6 for m/s to km/h)
-  PlotSeries series[2];    // Max 2 series per plot (avg + max)
+  PlotSeries series[3];    // Max 3 series per plot
   int seriesCount;
 };
 
@@ -115,6 +123,18 @@ static const PlotConfig PLOTS[] = {
       {nullptr, nullptr, nullptr, false}
     },
     1
+  },
+  {
+    "pm",
+    "Air Quality (PM)",
+    "μg/m³",
+    1.0f,
+    {
+      {"avgPM25", "#ff6600", "PM2.5", true},
+      {"avgPM10", "#996633", "PM10", true},
+      {"avgPM1", "#9966cc", "PM1.0", true}
+    },
+    3
   }
 };
 
@@ -124,26 +144,33 @@ static constexpr int PLOTS_COUNT = sizeof(PLOTS) / sizeof(PLOTS[0]);
 
 struct TableColumn {
   const char* field;       // Data field name
-  const char* label;       // Column header
+  const char* label;       // Column sub-header (avg, max, min)
   const char* unit;        // Unit to display
   float conversionFactor;  // Multiply by this
   int decimals;            // Decimal places
   const char* bgColor;     // Background color (hex or empty for default)
+  const char* group;       // Group header (Wind Speed, Temperature, etc.)
 };
 
 static const TableColumn TABLE_COLUMNS[] = {
-  {"day", "Day", "", 1.0f, 0, ""},
-  {"avgWind", "Avg wind", "km/h", 3.6f, 1, "#f8f8f8"},
-  {"maxWind", "Max wind", "km/h", 3.6f, 1, "#f8f8f8"},
-  {"avgTemp", "Avg temp", "°C", 1.0f, 1, ""},
-  {"minTemp", "Min temp", "°C", 1.0f, 1, ""},
-  {"maxTemp", "Max temp", "°C", 1.0f, 1, ""},
-  {"avgHum", "Avg RH", "%", 1.0f, 1, "#f8f8f8"},
-  {"minHum", "Min RH", "%", 1.0f, 1, "#f8f8f8"},
-  {"maxHum", "Max RH", "%", 1.0f, 1, "#f8f8f8"},
-  {"avgPress", "Avg press", "hPa", 1.0f, 1, ""},
-  {"minPress", "Min press", "hPa", 1.0f, 1, ""},
-  {"maxPress", "Max press", "hPa", 1.0f, 1, ""}
+  {"day", "Day", "", 1.0f, 0, "", ""},
+  {"avgWind", "avg", "km/h", 3.6f, 1, "#f8f8f8", "Wind Speed"},
+  {"maxWind", "max", "km/h", 3.6f, 1, "#f8f8f8", "Wind Speed"},
+  {"avgTemp", "avg", "°C", 1.0f, 1, "", "Temperature"},
+  {"minTemp", "min", "°C", 1.0f, 1, "", "Temperature"},
+  {"maxTemp", "max", "°C", 1.0f, 1, "", "Temperature"},
+  {"avgHum", "avg", "%", 1.0f, 1, "#f8f8f8", "Humidity"},
+  {"minHum", "min", "%", 1.0f, 1, "#f8f8f8", "Humidity"},
+  {"maxHum", "max", "%", 1.0f, 1, "#f8f8f8", "Humidity"},
+  {"avgPress", "avg", "hPa", 1.0f, 1, "", "Pressure"},
+  {"minPress", "min", "hPa", 1.0f, 1, "", "Pressure"},
+  {"maxPress", "max", "hPa", 1.0f, 1, "", "Pressure"},
+  {"avgPM1", "PM1 avg", "μg/m³", 1.0f, 1, "#f8f8f8", "Particulate Matter"},
+  {"maxPM1", "PM1 max", "μg/m³", 1.0f, 1, "#f8f8f8", "Particulate Matter"},
+  {"avgPM25", "PM2.5 avg", "μg/m³", 1.0f, 1, "#f8f8f8", "Particulate Matter"},
+  {"maxPM25", "PM2.5 max", "μg/m³", 1.0f, 1, "#f8f8f8", "Particulate Matter"},
+  {"avgPM10", "PM10 avg", "μg/m³", 1.0f, 1, "#f8f8f8", "Particulate Matter"},
+  {"maxPM10", "PM10 max", "μg/m³", 1.0f, 1, "#f8f8f8", "Particulate Matter"}
 };
 
 static constexpr int TABLE_COLUMNS_COUNT = sizeof(TABLE_COLUMNS) / sizeof(TABLE_COLUMNS[0]);
