@@ -9,19 +9,33 @@ function debugLog(msg, data = null) {
 }
 
 async function fetchJSON(url, { timeoutMs = 6000 } = {}){
-  // Use AbortController only if supported, otherwise use timeout promise
+  // Use AbortController for proper timeout handling
   const useAbort = typeof AbortController !== 'undefined';
   const ctrl = useAbort ? new AbortController() : null;
   const signal = useAbort ? ctrl.signal : undefined;
 
-  const fetchPromise = fetch(url, {cache:"no-store", signal: signal});
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`timeout ${url}`)), timeoutMs)
-  );
+  let timeoutId = null;
 
   try{
     debugLog(`Fetching ${url}...`);
-    const r = useAbort ? await fetchPromise : await Promise.race([fetchPromise, timeoutPromise]);
+
+    const fetchPromise = fetch(url, {cache:"no-store", signal: signal});
+
+    let r;
+    if (useAbort) {
+      // Set up timeout to abort the fetch
+      timeoutId = setTimeout(() => ctrl.abort(), timeoutMs);
+      r = await fetchPromise;
+      // Clear timeout if request succeeded
+      clearTimeout(timeoutId);
+    } else {
+      // Fallback for old browsers without AbortController
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`timeout ${url}`)), timeoutMs)
+      );
+      r = await Promise.race([fetchPromise, timeoutPromise]);
+    }
+
     debugLog(`Response ${url}`, {status: r.status, ok: r.ok});
     let txt = await r.text();
     debugLog(`Response length: ${txt.length} chars`);
@@ -36,6 +50,9 @@ async function fetchJSON(url, { timeoutMs = 6000 } = {}){
       throw new Error(`parse ${url}: ${e.message}`);
     }
   }catch(e){
+    // Clear timeout on error
+    if (timeoutId) clearTimeout(timeoutId);
+
     debugLog(`Fetch error ${url}`, {error: e.message});
     if (e.name === "AbortError") throw new Error(`timeout ${url}`);
     throw e;
@@ -72,7 +89,7 @@ function getDefaultConfig() {
       },
       {
         id: "press",
-        title: "Pressure",
+        title: "Pressure (MSLP)",
         unit: "hPa",
         conversionFactor: 1.0,
         series: [{ field: "avgPressHpa", color: "#5cb85c", label: "Pressure" }]
@@ -305,7 +322,7 @@ const plotState = {
   wind: { series: null, xDomain: null, zoomXDomain: null, label: "Wind", unit: "km/h" },
   temp: { series: null, xDomain: null, zoomXDomain: null, label: "Temp", unit: "°C" },
   hum:  { series: null, xDomain: null, zoomXDomain: null, label: "Humidity", unit: "%" },
-  press:{ series: null, xDomain: null, zoomXDomain: null, label: "Pressure", unit: "hPa" },
+  press:{ series: null, xDomain: null, zoomXDomain: null, label: "Pressure (MSLP)", unit: "hPa" },
   pm:   { series: null, xDomain: null, zoomXDomain: null, label: "PM", unit: "μg/m³" }
 };
 
@@ -502,7 +519,7 @@ function hoverPlot(key, evt){
     const domain = state.label === "Wind Speed" ? computeDomain(domainData, ["avgWind","maxWind"]) :
                    state.label === "Temperature" ? computeDomain(domainData, ["avgTempC"]) :
                    state.label === "Humidity" ? computeDomain(domainData, ["avgHumRH"]) :
-                   state.label === "Pressure" ? computeDomain(domainData, ["avgPressHpa"]) :
+                   state.label === "Pressure (MSLP)" ? computeDomain(domainData, ["avgPressHpa"]) :
                    state.label === "Air Quality (PM)" ? computeDomain(domainData, ["avgPM1","avgPM25","avgPM10"]) :
                    computeDomain(domainData, ["avgPressHpa"]);
     const spanY = domain.max - domain.min;
@@ -818,6 +835,8 @@ function reRenderPlot(key){
     renderSingleSeries(state.series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");
   } else if (key === "press") {
     renderSingleSeries(state.series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
+  } else if (key === "pm") {
+    renderPM(state.series);
   }
 }
 
@@ -829,6 +848,9 @@ function renderAxis(axisId, domain, dims = chartDims){
   const scaleX = svg ? (svg.getBoundingClientRect().width / dims.width) : 1;
   const textScale = scaleX > 0 ? (1 / scaleX) : 1;
 
+  // Use integer formatting for pressure axis
+  const decimals = (axisId === "axis_press") ? 0 : 1;
+
   const span = domain.max - domain.min;
   const ticks = 4;
   const axisX = dims.padLeft - 12;
@@ -839,7 +861,7 @@ function renderAxis(axisId, domain, dims = chartDims){
     const value = domain.max - frac * span;
     const y = dims.padTop + frac * usableH;
     html += `<line x1="${axisX}" y1="${y.toFixed(1)}" x2="${(axisX+6)}" y2="${y.toFixed(1)}" stroke-width="1"/>`;
-    html += `<text x="${axisX - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" transform="scale(${textScale.toFixed(3)}, 1)" transform-origin="${axisX - 4} ${(y + 3).toFixed(1)}">${value.toFixed(1)}</text>`;
+    html += `<text x="${axisX - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" transform="scale(${textScale.toFixed(3)}, 1)" transform-origin="${axisX - 4} ${(y + 3).toFixed(1)}">${value.toFixed(decimals)}</text>`;
   }
   axis.innerHTML = html;
 }
@@ -998,7 +1020,7 @@ function renderWind(values){
   renderXAxis("axis_x_wind", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "black", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
-  plotState.wind.series = valuesKm;
+  plotState.wind.series = filtered;  // Store original m/s data, not converted
   plotState.wind.xDomain = xDomain;
 }
 
@@ -1311,143 +1333,174 @@ async function rebootDevice(){
   }
 }
 
-async function tick(){
-  try{
-    const now = await fetchJSON("/api/now", { timeoutMs: 2500 });
-    const windKmh = toKmh(now.wind_ms);
-    document.getElementById("now").textContent = numOrDash(windKmh, 1);
-    document.getElementById("pps").textContent = numOrDash(now.wind_pps, 1);
-    document.getElementById("uptime").textContent = formatUptime(now.uptime_s);
-    document.getElementById("tlocal").textContent = now.local_time || "--";
+function updateCurrentReadings(now) {
+  const windKmh = toKmh(now.wind_ms);
+  document.getElementById("now").textContent = numOrDash(windKmh, 1);
+  document.getElementById("pps").textContent = numOrDash(now.wind_pps, 1);
+  document.getElementById("uptime").textContent = formatUptime(now.uptime_s);
+  document.getElementById("tlocal").textContent = now.local_time || "--";
 
-    document.getElementById("temp").textContent = numOrDash(now.temp_c, 1);
-    document.getElementById("rh").textContent = numOrDash(now.hum_rh, 1);
-    document.getElementById("pres").textContent = numOrDash(now.press_hpa, 1);
+  document.getElementById("temp").textContent = numOrDash(now.temp_c, 1);
+  document.getElementById("rh").textContent = numOrDash(now.hum_rh, 1);
+  document.getElementById("pres").textContent = numOrDash(now.press_hpa, 1);
 
-    // Sensor status pills with colors
-    document.getElementById("bmeok").textContent = now.bme280_ok ? "OK" : "ERR";
-    const bmeokPill = document.getElementById("bmeok_pill");
-    if (now.bme280_ok) {
-      bmeokPill.style.background = "#5cb85c";
-      bmeokPill.style.color = "#fff";
+  // Sensor status pills with colors
+  document.getElementById("bmeok").textContent = now.bme280_ok ? "OK" : "ERR";
+  const bmeokPill = document.getElementById("bmeok_pill");
+  if (now.bme280_ok) {
+    bmeokPill.style.background = "#5cb85c";
+    bmeokPill.style.color = "#fff";
+  } else {
+    bmeokPill.style.background = "#d9534f";
+    bmeokPill.style.color = "#fff";
+  }
+
+  document.getElementById("pmsok").textContent = now.pms5003_ok ? "OK" : "ERR";
+  const pmsokPill = document.getElementById("pmsok_pill");
+  if (now.pms5003_ok) {
+    pmsokPill.style.background = "#5cb85c";
+    pmsokPill.style.color = "#fff";
+  } else {
+    pmsokPill.style.background = "#d9534f";
+    pmsokPill.style.color = "#fff";
+  }
+
+  document.getElementById("sdok").textContent  = now.sd_ok ? "OK" : "ERR";
+  const sdokPill = document.getElementById("sdok_pill");
+  if (now.sd_ok) {
+    sdokPill.style.background = "#5cb85c";
+    sdokPill.style.color = "#fff";
+  } else {
+    sdokPill.style.background = "#d9534f";
+    sdokPill.style.color = "#fff";
+  }
+
+  // WiFi pill with colors based on quality
+  document.getElementById("wifi").textContent = now.wifi_rssi !== null && now.wifi_rssi !== undefined ? String(now.wifi_rssi) : "--";
+  document.getElementById("wifi_quality").textContent = wifiQuality(now.wifi_rssi);
+  const wifiPill = document.getElementById("wifi_pill");
+  if (now.wifi_rssi !== null && now.wifi_rssi !== undefined && isFinite(now.wifi_rssi)) {
+    if (now.wifi_rssi >= -60) { // Excellent or Good
+      wifiPill.style.background = "#5cb85c";
+      wifiPill.style.color = "#fff";
+    } else if (now.wifi_rssi >= -70) { // Fair
+      wifiPill.style.background = "#f0ad4e";
+      wifiPill.style.color = "#000";
+    } else { // Weak
+      wifiPill.style.background = "#d9534f";
+      wifiPill.style.color = "#fff";
+    }
+  } else {
+    wifiPill.style.background = "";
+    wifiPill.style.color = "";
+  }
+
+  // Helper function to set AQI pill color and text
+  function setAQIPill(pillId, aqiId, catId, aqiValue, category) {
+    document.getElementById(aqiId).textContent = aqiValue;
+    document.getElementById(catId).textContent = category;
+
+    const pill = document.getElementById(pillId);
+    if (aqiValue <= 50) {
+      pill.style.background = "#5cb85c"; // Good - green
+      pill.style.color = "#fff";
+    } else if (aqiValue <= 100) {
+      pill.style.background = "#f0ad4e"; // Moderate - yellow
+      pill.style.color = "#000";
     } else {
-      bmeokPill.style.background = "#d9534f";
-      bmeokPill.style.color = "#fff";
+      pill.style.background = "#d9534f"; // Unhealthy+ - red
+      pill.style.color = "#fff";
     }
+  }
 
-    document.getElementById("pmsok").textContent = now.pms5003_ok ? "OK" : "ERR";
-    const pmsokPill = document.getElementById("pmsok_pill");
-    if (now.pms5003_ok) {
-      pmsokPill.style.background = "#5cb85c";
-      pmsokPill.style.color = "#fff";
+  // Update PM2.5 AQI pill
+  const aqiPM25 = now.aqi_pm25 !== null && now.aqi_pm25 !== undefined ? now.aqi_pm25 : 0;
+  const aqiPM25Cat = now.aqi_pm25_category || "--";
+  setAQIPill("aqi_pm25_pill", "aqi_pm25", "aqi_pm25_cat", aqiPM25, aqiPM25Cat);
+
+  // Update PM10 AQI pill
+  const aqiPM10 = now.aqi_pm10 !== null && now.aqi_pm10 !== undefined ? now.aqi_pm10 : 0;
+  const aqiPM10Cat = now.aqi_pm10_category || "--";
+  setAQIPill("aqi_pm10_pill", "aqi_pm10", "aqi_pm10_cat", aqiPM10, aqiPM10Cat);
+
+  // RAM pill with colors based on usage
+  const freeHeap = now.free_heap !== null && now.free_heap !== undefined ? now.free_heap : 0;
+  const heapSize = now.heap_size !== null && now.heap_size !== undefined ? now.heap_size : 0;
+  const usedHeap = heapSize > 0 ? heapSize - freeHeap : 0;
+  const pctUsed = heapSize > 0 ? Math.round((usedHeap / heapSize) * 100) : 0;
+  document.getElementById("ram").textContent = heapSize > 0 ? `${bytesPretty(freeHeap)} free (${pctUsed}% used)` : "--";
+  const ramPill = document.getElementById("ram_pill");
+  if (heapSize > 0) {
+    if (pctUsed > 90) {
+      ramPill.style.background = "#d9534f";
+      ramPill.style.color = "#fff";
+    } else if (pctUsed > 75) {
+      ramPill.style.background = "#f0ad4e";
+      ramPill.style.color = "#000";
     } else {
-      pmsokPill.style.background = "#d9534f";
-      pmsokPill.style.color = "#fff";
+      ramPill.style.background = "#5cb85c";
+      ramPill.style.color = "#fff";
     }
+  } else {
+    ramPill.style.background = "";
+    ramPill.style.color = "";
+  }
 
-    document.getElementById("sdok").textContent  = now.sd_ok ? "OK" : "ERR";
-    const sdokPill = document.getElementById("sdok_pill");
-    if (now.sd_ok) {
-      sdokPill.style.background = "#5cb85c";
-      sdokPill.style.color = "#fff";
+  // CPU temp pill with colors
+  document.getElementById("cpu_temp").textContent = numOrDash(now.cpu_temp_c, 1);
+  const cpuTempPill = document.getElementById("cpu_temp_pill");
+  if (now.cpu_temp_c !== null && now.cpu_temp_c !== undefined && isFinite(now.cpu_temp_c)) {
+    if (now.cpu_temp_c > 90) {
+      cpuTempPill.style.background = "#d9534f";
+      cpuTempPill.style.color = "#fff";
+    } else if (now.cpu_temp_c > 70) {
+      cpuTempPill.style.background = "#f0ad4e";
+      cpuTempPill.style.color = "#000";
     } else {
-      sdokPill.style.background = "#d9534f";
-      sdokPill.style.color = "#fff";
+      cpuTempPill.style.background = "#5cb85c";
+      cpuTempPill.style.color = "#fff";
     }
+  } else {
+    cpuTempPill.style.background = "";
+    cpuTempPill.style.color = "";
+  }
+}
 
-    // WiFi pill with colors based on quality
-    document.getElementById("wifi").textContent = now.wifi_rssi !== null && now.wifi_rssi !== undefined ? String(now.wifi_rssi) : "--";
-    document.getElementById("wifi_quality").textContent = wifiQuality(now.wifi_rssi);
-    const wifiPill = document.getElementById("wifi_pill");
-    if (now.wifi_rssi !== null && now.wifi_rssi !== undefined && isFinite(now.wifi_rssi)) {
-      if (now.wifi_rssi >= -60) { // Excellent or Good
-        wifiPill.style.background = "#5cb85c";
-        wifiPill.style.color = "#fff";
-      } else if (now.wifi_rssi >= -70) { // Fair
-        wifiPill.style.background = "#f0ad4e";
-        wifiPill.style.color = "#000";
-      } else { // Weak
-        wifiPill.style.background = "#d9534f";
-        wifiPill.style.color = "#fff";
-      }
-    } else {
-      wifiPill.style.background = "";
-      wifiPill.style.color = "";
-    }
+// Separate tick functions for different update frequencies
+let tickCount = 0;
+let isFastTickRunning = false;
+let isSlowTickRunning = false;
 
-    // Helper function to set AQI pill color and text
-    function setAQIPill(pillId, aqiId, catId, aqiValue, category) {
-      document.getElementById(aqiId).textContent = aqiValue;
-      document.getElementById(catId).textContent = category;
+async function fastTick() {
+  // Prevent overlapping requests
+  if (isFastTickRunning) {
+    debugLog('Skipping fastTick - already running');
+    return;
+  }
 
-      const pill = document.getElementById(pillId);
-      if (aqiValue <= 50) {
-        pill.style.background = "#5cb85c"; // Good - green
-        pill.style.color = "#fff";
-      } else if (aqiValue <= 100) {
-        pill.style.background = "#f0ad4e"; // Moderate - yellow
-        pill.style.color = "#000";
-      } else {
-        pill.style.background = "#d9534f"; // Unhealthy+ - red
-        pill.style.color = "#fff";
-      }
-    }
+  isFastTickRunning = true;
+  try {
+    const nowRes = await fetchJSON("/api/now", { timeoutMs: 12000 });
+    updateCurrentReadings(nowRes);
+  } catch(e) {
+    console.warn("fastTick", e);
+  } finally {
+    isFastTickRunning = false;
+  }
+}
 
-    // Update PM2.5 AQI pill
-    const aqiPM25 = now.aqi_pm25 !== null && now.aqi_pm25 !== undefined ? now.aqi_pm25 : 0;
-    const aqiPM25Cat = now.aqi_pm25_category || "--";
-    setAQIPill("aqi_pm25_pill", "aqi_pm25", "aqi_pm25_cat", aqiPM25, aqiPM25Cat);
+async function slowTick() {
+  // Prevent overlapping requests
+  if (isSlowTickRunning) {
+    debugLog('Skipping slowTick - already running');
+    return;
+  }
 
-    // Update PM10 AQI pill
-    const aqiPM10 = now.aqi_pm10 !== null && now.aqi_pm10 !== undefined ? now.aqi_pm10 : 0;
-    const aqiPM10Cat = now.aqi_pm10_category || "--";
-    setAQIPill("aqi_pm10_pill", "aqi_pm10", "aqi_pm10_cat", aqiPM10, aqiPM10Cat);
-
-    // RAM pill with colors based on usage
-    const freeHeap = now.free_heap !== null && now.free_heap !== undefined ? now.free_heap : 0;
-    const heapSize = now.heap_size !== null && now.heap_size !== undefined ? now.heap_size : 0;
-    const usedHeap = heapSize > 0 ? heapSize - freeHeap : 0;
-    const pctUsed = heapSize > 0 ? Math.round((usedHeap / heapSize) * 100) : 0;
-    document.getElementById("ram").textContent = heapSize > 0 ? `${bytesPretty(freeHeap)} free (${pctUsed}% used)` : "--";
-    const ramPill = document.getElementById("ram_pill");
-    if (heapSize > 0) {
-      if (pctUsed > 90) {
-        ramPill.style.background = "#d9534f";
-        ramPill.style.color = "#fff";
-      } else if (pctUsed > 75) {
-        ramPill.style.background = "#f0ad4e";
-        ramPill.style.color = "#000";
-      } else {
-        ramPill.style.background = "#5cb85c";
-        ramPill.style.color = "#fff";
-      }
-    } else {
-      ramPill.style.background = "";
-      ramPill.style.color = "";
-    }
-
-    // CPU temp pill with colors
-    document.getElementById("cpu_temp").textContent = numOrDash(now.cpu_temp_c, 1);
-    const cpuTempPill = document.getElementById("cpu_temp_pill");
-    if (now.cpu_temp_c !== null && now.cpu_temp_c !== undefined && isFinite(now.cpu_temp_c)) {
-      if (now.cpu_temp_c > 90) {
-        cpuTempPill.style.background = "#d9534f";
-        cpuTempPill.style.color = "#fff";
-      } else if (now.cpu_temp_c > 70) {
-        cpuTempPill.style.background = "#f0ad4e";
-        cpuTempPill.style.color = "#000";
-      } else {
-        cpuTempPill.style.background = "#5cb85c";
-        cpuTempPill.style.color = "#fff";
-      }
-    } else {
-      cpuTempPill.style.background = "";
-      cpuTempPill.style.color = "";
-    }
-
+  isSlowTickRunning = true;
+  try {
     const [bucketsRes, daysRes] = await Promise.allSettled([
-      fetchJSON("/api/buckets_ui", { timeoutMs: 10000 }),
-      fetchJSON("/api/days", { timeoutMs: 5000 })
+      fetchJSON("/api/buckets_ui", { timeoutMs: 20000 }),
+      fetchJSON("/api/days", { timeoutMs: 20000 })
     ]);
 
     if (bucketsRes.status === "fulfilled") {
@@ -1455,10 +1508,12 @@ async function tick(){
       let series = Array.isArray(bucketsRes.value.buckets) ? bucketsRes.value.buckets : [];
       series = series.filter(b => Array.isArray(b) && b.length >= 7);
       debugLog('Valid buckets', {count: series.length});
+
+      // Get current time and calculate 24h cutoff
+      const nowEpoch = bucketsRes.value.now_epoch || Math.floor(Date.now() / 1000);
+      const cutoff24h = nowEpoch - 86400;  // 24 hours ago
+
       series = series.map(b => {
-        // Convert array format to object format
-        // Array format: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa, pm1, pm25, pm10]
-        // All values are already in full precision (no conversion needed)
         return {
           startEpoch: b[0],
           avgWind: b[1],
@@ -1472,6 +1527,11 @@ async function tick(){
           avgPM10: b.length > 9 ? b[9] : null
         };
       });
+
+      // Filter to only show last 24 hours
+      series = series.filter(b => b.startEpoch >= cutoff24h);
+      debugLog('Filtered to last 24h', {count: series.length});
+
       if (series.length > 0) debugLog('Sample data', series[0]);
       const bucketSeconds = bucketsRes.value.bucket_seconds || "--";
       document.getElementById("bucket_sec").textContent = bucketSeconds;
@@ -1492,8 +1552,22 @@ async function tick(){
     } else {
       console.warn("days", daysRes.reason);
     }
-  }catch(e){
-    console.warn("tick", e);
+  } catch(e) {
+    console.warn("slowTick", e);
+  } finally {
+    isSlowTickRunning = false;
+  }
+}
+
+function combinedTick() {
+  tickCount++;
+
+  // Fast updates every tick (2s)
+  fastTick();
+
+  // Slow updates every 15 seconds (7.5 ticks * 2s = 15s, round down to 7)
+  if (tickCount % 7 === 0) {
+    slowTick();
   }
 }
 
@@ -1507,8 +1581,11 @@ async function tick(){
     await loadConfig();
     debugLog('Starting tick');
 
-    tick();
-    setInterval(tick, 2000);
+    // Load plots and summaries once on init
+    await slowTick();
+
+    // Then update current readings every 2s, plots every 14s (7 ticks)
+    setInterval(combinedTick, 2000);
     loadFiles('data');
 
     debugLog('Initialization complete');

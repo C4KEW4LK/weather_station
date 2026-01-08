@@ -19,6 +19,7 @@ namespace BME280Config {
   static constexpr uint8_t  I2C_ADDR_PRIMARY = 0x76;
   static constexpr uint8_t  I2C_ADDR_FALLBACK = 0x77;
   static constexpr uint32_t POLL_INTERVAL_MS = 2000;
+  static constexpr float    ALTITUDE_METERS = 580.0f;  // Station altitude for MSLP calculation (0 = sea level)
 }
 
 // PMS5003 Air Quality Sensor (UART)
@@ -39,7 +40,7 @@ namespace SDConfig {
 namespace LogConfig {
   static constexpr int BUCKET_SECONDS = 60;             // Log interval (1 minute)
   static constexpr int BUCKETS_24H = 24 * 60 * 60 / BUCKET_SECONDS;
-  static constexpr int RETENTION_DAYS = 3600;           // 0 = never delete
+  static constexpr int RETENTION_DAYS = 0;           // 0 = never delete
   static constexpr int DAYS_HISTORY = 30;               // RAM history
   static_assert((86400 % BUCKET_SECONDS) == 0, "BUCKET_SECONDS must divide evenly into 24h");
 }
@@ -115,7 +116,7 @@ static const PlotConfig PLOTS[] = {
   },
   {
     "press",
-    "Pressure",
+    "Pressure (MSLP)",
     "hPa",
     1.0f,
     {

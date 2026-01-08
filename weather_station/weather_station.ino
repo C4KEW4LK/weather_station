@@ -484,11 +484,33 @@ void loadRecentBucketsFromSD(time_t nowEpoch) {
 }
 
 // ------------------- BME280 -------------------
+// Convert station pressure to Mean Sea Level Pressure (MSLP)
+// Using the ICAO Standard Barometric Formula with measured temperature
+float convertToMSLP(float stationPressurePa, float tempC, float altitudeM) {
+  if (!isfinite(stationPressurePa) || !isfinite(tempC)) return stationPressurePa;
+  
+  // If altitude is essentially zero, return station pressure
+  if (altitudeM > -0.1f && altitudeM < 0.1f) return stationPressurePa;
+
+  const float L = 0.0065f;        // Standard lapse rate (K/m)
+  const float T_station = tempC + 273.15f; // Station temperature in Kelvin
+  const float exponent = 5.25588f; // g / (R * L)
+
+  // Use the station temperature directly in the ratio
+  float ratio = 1.0f + (L * altitudeM / T_station);
+  float mslpPa = stationPressurePa * pow(ratio, exponent);
+
+  return mslpPa;
+}
+
 void pollBME() {
   if (!BME280Config::ENABLE || !gBmeOk) return;
   gTempC = bme.readTemperature();
-  gPressurePa = bme.readPressure();
+  float stationPressurePa = bme.readPressure();
   gHumRH = bme.readHumidity();
+
+  // Convert to Mean Sea Level Pressure using station altitude
+  gPressurePa = convertToMSLP(stationPressurePa, gTempC, BME280Config::ALTITUDE_METERS);
 
   // Accumulate for per-bucket averages
   if (timeIsValid(gCurrentBucketStart)) {
@@ -1671,12 +1693,13 @@ void handleApiBucketsUi() {
   String batch = "";
   batch.reserve(12288); // Reserve 12KB for batching
 
-  // Add finalized buckets from today only
+  // Add finalized buckets from last 24 hours
+  time_t cutoff24h = nowE - 86400;  // 24 hours ago
   for (int i = 0; i < LogConfig::BUCKETS_24H; i++) {
     int idx = (gBucketWrite + i) % LogConfig::BUCKETS_24H;
     const BucketSample& b = gBuckets[idx];
     if (!timeIsValid(b.startEpoch)) continue;
-    if (b.startEpoch < todayMidnight) continue;
+    if (b.startEpoch < cutoff24h) continue;
 
     String bucketJson = buildBucketJsonCompact(b);
     if (bucketJson.length() > 0) {
@@ -1694,7 +1717,7 @@ void handleApiBucketsUi() {
 
   // Always append the current in-progress bucket
   BucketSample cur = currentBucketSnapshot();
-  if (timeIsValid(cur.startEpoch) && cur.startEpoch >= todayMidnight) {
+  if (timeIsValid(cur.startEpoch) && cur.startEpoch >= cutoff24h) {
     bool alreadyFinalized = false;
     int lastIdx = (gBucketWrite - 1 + LogConfig::BUCKETS_24H) % LogConfig::BUCKETS_24H;
     if (timeIsValid(gBuckets[lastIdx].startEpoch) &&
