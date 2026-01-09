@@ -491,11 +491,13 @@ function hoverPlot(key, evt){
     txt += `<br>${colorDot('#996633')}PM10: ${isFinite(pm10) ? pm10.toFixed(1) : '--'} ${state.unit}`;
     txt += `<br>${colorDot('#9966cc')}PM1.0: ${isFinite(pm1) ? pm1.toFixed(1) : '--'} ${state.unit}`;
   } else if (key === "wind") {
-    // Show wind with colored dots
-    txt += `<br>${colorDot('black')}Wind: ${best.vAvg.toFixed(1)} ${state.unit}`;
-    if (best.vMax !== null && best.vMax !== undefined && isFinite(best.vMax)) {
-      txt += `<br>${colorDot('#f0ad4e')}Gust: ${best.vMax.toFixed(1)} ${state.unit}`;
+    // Show wind with colored dots - convert m/s to km/h and show gust first
+    const windKmh = toKmh(best.vAvg);
+    const gustKmh = toKmh(best.vMax);
+    if (gustKmh !== null && gustKmh !== undefined && isFinite(gustKmh)) {
+      txt += `<br>${colorDot('#f0ad4e')}Gust: ${gustKmh.toFixed(1)} ${state.unit}`;
     }
+    txt += `<br>${colorDot('black')}Wind: ${windKmh.toFixed(1)} ${state.unit}`;
   } else {
     txt += `<br>${state.label}: ${best.vAvg.toFixed(1)} ${state.unit}`;
   }

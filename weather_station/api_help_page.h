@@ -55,6 +55,28 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
   </div>
 
   <div class="card">
+    <div><code>/api/homeassistant</code></div>
+    <div class="muted">Current readings formatted for Home Assistant REST sensor integration.</div>
+    <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
+  "temperature": 23.4,
+  "humidity": 55.1,
+  "pressure": 1012.3,
+  "wind_speed": 1.2,
+  "pm1": 5.2,
+  "pm25": 12.8,
+  "pm10": 18.4,
+  "aqi_pm25": 52,
+  "aqi_pm25_category": "Moderate",
+  "aqi_pm10": 45,
+  "aqi_pm10_category": "Good",
+  "timestamp": "2025-12-18 22:25",
+  "bme280_ok": true,
+  "pms5003_ok": true,
+  "wifi_rssi": -65
+}</code></pre>
+  </div>
+
+  <div class="card">
     <div><code>/api/buckets</code></div>
     <div class="muted">Last 24h bucketed data. Compact JSON keys, full precision floats. Chunked transfer.</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{

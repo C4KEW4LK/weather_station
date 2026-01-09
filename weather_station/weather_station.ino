@@ -1522,6 +1522,35 @@ void handleApiNow() {
   server.send(200, "application/json", out);
 }
 
+void handleApiHomeAssistant() {
+  time_t nowE = epochNow();
+  float press_hpa = isfinite(gPressurePa) ? (gPressurePa / 100.0f) : NAN;
+
+  // Calculate AQI values
+  int aqiPM25 = calculateAQI_PM25(gPM25);
+  int aqiPM10 = calculateAQI_PM10(gPM10);
+
+  String out = "{";
+  out += "\"temperature\":" + (isfinite(gTempC) ? String(gTempC, 2) : String("null")) + ",";
+  out += "\"humidity\":" + (isfinite(gHumRH) ? String(gHumRH, 2) : String("null")) + ",";
+  out += "\"pressure\":" + (isfinite(press_hpa) ? String(press_hpa, 2) : String("null")) + ",";
+  out += "\"wind_speed\":" + (isfinite(gNowWindMS) ? String(gNowWindMS, 3) : String("null")) + ",";
+  out += "\"pm1\":" + (isfinite(gPM1) ? String(gPM1, 1) : String("null")) + ",";
+  out += "\"pm25\":" + (isfinite(gPM25) ? String(gPM25, 1) : String("null")) + ",";
+  out += "\"pm10\":" + (isfinite(gPM10) ? String(gPM10, 1) : String("null")) + ",";
+  out += "\"aqi_pm25\":" + (aqiPM25 >= 0 ? String(aqiPM25) : String("null")) + ",";
+  out += "\"aqi_pm25_category\":\"" + String(getAQICategory(aqiPM25)) + "\",";
+  out += "\"aqi_pm10\":" + (aqiPM10 >= 0 ? String(aqiPM10) : String("null")) + ",";
+  out += "\"aqi_pm10_category\":\"" + String(getAQICategory(aqiPM10)) + "\",";
+  out += "\"timestamp\":\"" + fmtLocal(nowE) + "\",";
+  out += "\"bme280_ok\":" + String(gBmeOk ? "true" : "false") + ",";
+  out += "\"pms5003_ok\":" + String(gPmsOk ? "true" : "false") + ",";
+  out += "\"wifi_rssi\":" + String(WiFi.RSSI());
+  out += "}";
+
+  server.send(200, "application/json", out);
+}
+
 static inline String numOrNull(float v, int digits) {
   return isfinite(v) ? String(v, digits) : String("null");
 }
@@ -2297,6 +2326,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/root.js", handleRootJs);
   server.on("/api/now", handleApiNow);
+  server.on("/api/homeassistant", handleApiHomeAssistant);
   server.on("/api/buckets", handleApiBuckets);
   server.on("/api/buckets_ui", handleApiBucketsUi);  // Compact format for internal UI
   server.on("/api/days", handleApiDays);
