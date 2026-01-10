@@ -4,11 +4,11 @@ This project implements a **Wi‑Fi connected wind + environment logger** using 
 
 It provides:
 
-* Real-time wind speed calculation (1-second sampling)
+* Windspeed from pulse anemometer (1-second sampling)
 * Default 1-minute aggregated logging (adjustable), aligned to real time (NTP)
-* Daily CSV files with configurable retention (or keep forever)
-* A built-in web UI with interactive graphing and zoom
-* A REST API with full precision sensor data
+* Daily CSV files with configurable retention
+* A built-in web UI with interactive plots
+* A REST API with current and historical sensor data
 * CSV and ZIP download endpoints
 * Password-protected file management
 
