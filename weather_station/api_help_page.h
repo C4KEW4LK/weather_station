@@ -67,6 +67,7 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
       "timestamp": 1734489600,
       "wind_speed_avg": 0.8,
       "wind_speed_max": 2.1,
+      "wind_speed_samples": 12,
       "temperature": 22.9,
       "humidity": 56.0,
       "pressure": 1012.1,
