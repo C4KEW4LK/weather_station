@@ -1081,8 +1081,8 @@ void handleApiFiles() {
         if (!first) out += ",";
         first = false;
         out += "{";
-        // Include full path with /data/ prefix
-        out += "\"path\":\"" + base + "/" + name + "\",";
+        // Just the filename, directory is specified in "dir" field
+        out += "\"path\":\"" + name + "\",";
         out += "\"size\":" + String((uint32_t)f.size());
         out += "}";
       }
