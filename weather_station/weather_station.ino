@@ -972,12 +972,12 @@ BucketSample currentBucketSnapshot() {
 
 // ------------------- DOWNLOAD / FILE LIST -------------------
 
-static bool isAllowedPath(const String& p) {
-  // Only allow /data directory, and no path traversal.
-  if (!p.startsWith("/data/")) return false;
-  if (p.indexOf("..") >= 0) return false;
-  if (p.indexOf('\\') >= 0) return false;
-  if (!p.endsWith(".csv")) return false;
+static bool isAllowedFilename(const String& filename) {
+  // Validate filename - no path traversal, no slashes, must end with .csv
+  if (filename.indexOf("..") >= 0) return false;
+  if (filename.indexOf('/') >= 0) return false;
+  if (filename.indexOf('\\') >= 0) return false;
+  if (!filename.endsWith(".csv")) return false;
   return true;
 }
 
@@ -1010,12 +1010,13 @@ void handleDownload() {
     return;
   }
 
-  String path = server.arg("path");
-  if (!isAllowedPath(path)) {
-    server.send(400, "text/plain", "Invalid path");
+  String filename = server.arg("filename");
+  if (!isAllowedFilename(filename)) {
+    server.send(400, "text/plain", "Invalid filename");
     return;
   }
 
+  String path = "/data/" + filename;
   if (!SD.exists(path.c_str())) {
     server.send(404, "text/plain", "Not found");
     return;
@@ -1026,10 +1027,6 @@ void handleDownload() {
     server.send(500, "text/plain", "Failed to open file");
     return;
   }
-
-  String filename = path;
-  int slash = filename.lastIndexOf('/');
-  if (slash >= 0) filename = filename.substring(slash + 1);
 
   server.sendHeader("Content-Type", "text/csv");
   server.sendHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
@@ -1044,14 +1041,9 @@ void handleApiFiles() {
     return;
   }
 
-  String dir = server.arg("dir");
-  String base;
-  if (dir == "data") {
-    base = "/data";
-  } else {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"dir_must_be_data\"}");
-    return;
-  }
+  // Always use /data directory
+  String dir = "data";
+  String base = "/data";
 
   if (!SD.exists(base.c_str())) {
     server.send(200, "application/json", String("{\"ok\":true,\"dir\":\"") + dir + "\",\"files\":[]}");
@@ -1409,16 +1401,17 @@ void handleApiDelete() {
     server.send(503, "application/json", "{\"ok\":false,\"error\":\"sd_not_available\"}");
     return;
   }
-  String pathArg = server.arg("path");
-  if (!isAllowedPath(pathArg)) {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_path\"}");
+  String filename = server.arg("filename");
+  if (!isAllowedFilename(filename)) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_filename\"}");
     return;
   }
-  if (!SD.exists(pathArg.c_str())) {
+  String path = "/data/" + filename;
+  if (!SD.exists(path.c_str())) {
     server.send(404, "application/json", "{\"ok\":false,\"error\":\"not_found\"}");
     return;
   }
-  bool ok = SD.remove(pathArg.c_str());
+  bool ok = SD.remove(path.c_str());
   if (!ok) {
     server.send(500, "application/json", "{\"ok\":false,\"error\":\"delete_failed\"}");
     return;
@@ -1522,41 +1515,12 @@ void handleApiNow() {
   server.send(200, "application/json", out);
 }
 
-void handleApiHomeAssistant() {
-  time_t nowE = epochNow();
-  float press_hpa = isfinite(gPressurePa) ? (gPressurePa / 100.0f) : NAN;
-
-  // Calculate AQI values
-  int aqiPM25 = calculateAQI_PM25(gPM25);
-  int aqiPM10 = calculateAQI_PM10(gPM10);
-
-  String out = "{";
-  out += "\"temperature\":" + (isfinite(gTempC) ? String(gTempC, 2) : String("null")) + ",";
-  out += "\"humidity\":" + (isfinite(gHumRH) ? String(gHumRH, 2) : String("null")) + ",";
-  out += "\"pressure\":" + (isfinite(press_hpa) ? String(press_hpa, 2) : String("null")) + ",";
-  out += "\"wind_speed\":" + (isfinite(gNowWindMS) ? String(gNowWindMS, 3) : String("null")) + ",";
-  out += "\"pm1\":" + (isfinite(gPM1) ? String(gPM1, 1) : String("null")) + ",";
-  out += "\"pm25\":" + (isfinite(gPM25) ? String(gPM25, 1) : String("null")) + ",";
-  out += "\"pm10\":" + (isfinite(gPM10) ? String(gPM10, 1) : String("null")) + ",";
-  out += "\"aqi_pm25\":" + (aqiPM25 >= 0 ? String(aqiPM25) : String("null")) + ",";
-  out += "\"aqi_pm25_category\":\"" + String(getAQICategory(aqiPM25)) + "\",";
-  out += "\"aqi_pm10\":" + (aqiPM10 >= 0 ? String(aqiPM10) : String("null")) + ",";
-  out += "\"aqi_pm10_category\":\"" + String(getAQICategory(aqiPM10)) + "\",";
-  out += "\"timestamp\":\"" + fmtLocal(nowE) + "\",";
-  out += "\"bme280_ok\":" + String(gBmeOk ? "true" : "false") + ",";
-  out += "\"pms5003_ok\":" + String(gPmsOk ? "true" : "false") + ",";
-  out += "\"wifi_rssi\":" + String(WiFi.RSSI());
-  out += "}";
-
-  server.send(200, "application/json", out);
-}
-
 static inline String numOrNull(float v, int digits) {
   return isfinite(v) ? String(v, digits) : String("null");
 }
 
 static String buildBucketJson(const BucketSample& b) {
-  // Compact JSON format - full precision floats, shorter keys
+  // Full descriptive property names
   float avg_wind = (b.avgWind != 255) ? ((float)b.avgWind / 2.0f) : NAN;
   float max_wind = (b.maxWind != 255) ? ((float)b.maxWind / 2.0f) : NAN;
   float temp_c = (b.avgTempC != -128) ? (float)b.avgTempC : NAN;
@@ -1569,19 +1533,19 @@ static String buildBucketJson(const BucketSample& b) {
     return "";
   }
 
-  String out = "{\"t\":";
+  String out = "{\"timestamp\":";
   out += String((uint32_t)b.startEpoch);
-  out += ",\"w\":{\"a\":";
+  out += ",\"wind_speed_avg\":";
   out += numOrNull(avg_wind, 3);
-  out += ",\"m\":";
+  out += ",\"wind_speed_max\":";
   out += numOrNull(max_wind, 3);
-  out += ",\"s\":";
+  out += ",\"wind_speed_samples\":";
   out += String(b.samples);
-  out += "},\"T\":";
+  out += ",\"temperature\":";
   out += numOrNull(temp_c, 2);
-  out += ",\"H\":";
+  out += ",\"humidity\":";
   out += numOrNull(hum_rh, 2);
-  out += ",\"P\":";
+  out += ",\"pressure\":";
   out += numOrNull(press_hpa, 2);
   out += ",\"pm1\":";
   out += numOrNull(b.avgPM1, 1);
@@ -1702,7 +1666,7 @@ void handleApiBuckets() {
   server.sendContent("]}");
 }
 
-void handleApiBucketsUi() {
+void handleApiBucketsCompact() {
   // Compact format for internal UI use - saves bandwidth
   time_t nowE = epochNow();
   time_t todayMidnight = localMidnight(nowE);
@@ -2326,9 +2290,8 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/root.js", handleRootJs);
   server.on("/api/now", handleApiNow);
-  server.on("/api/homeassistant", handleApiHomeAssistant);
   server.on("/api/buckets", handleApiBuckets);
-  server.on("/api/buckets_ui", handleApiBucketsUi);  // Compact format for internal UI
+  server.on("/api/buckets_compact", handleApiBucketsCompact);  // Compact format for internal UI
   server.on("/api/days", handleApiDays);
   server.on("/api/config", handleApiConfig);
   server.on("/api/ui_files", handleApiUiFiles);

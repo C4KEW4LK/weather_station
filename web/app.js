@@ -1204,9 +1204,10 @@ async function loadFiles(dir){
     let html = "<ul style='margin:8px 0; padding-left:18px'>";
     for (const f of pageFiles){
       const p = f.path;
+      const filename = p.substring(p.lastIndexOf('/') + 1);
       const s = bytesPretty(f.size);
-      const dl = `/download?path=${encodeURIComponent(p)}`;
-      html += `<li><a href="${dl}">${p}</a> <span class="muted">(${s})</span> <button class="small" style="padding:4px 6px; border-radius:6px;" onclick="deleteFile('${p}','${dir}')">Delete</button></li>`;
+      const dl = `/download?filename=${encodeURIComponent(filename)}`;
+      html += `<li><a href="${dl}">${p}</a> <span class="muted">(${s})</span> <button class="small" style="padding:4px 6px; border-radius:6px;" onclick="deleteFile('${filename}','${dir}')">Delete</button></li>`;
     }
     html += "</ul>";
     target.innerHTML = html;
@@ -1258,7 +1259,7 @@ function downloadZip(){
   window.location = `/download_zip?days=${encodeURIComponent(days)}`;
 }
 
-async function deleteFile(pathRaw, dir){
+async function deleteFile(filename, dir){
   if (!confirm("Delete this file from SD?")) return;
   const pw = prompt("Password required to delete file:");
   if (!(pw && pw.trim().length)) {
@@ -1266,7 +1267,7 @@ async function deleteFile(pathRaw, dir){
     return;
   }
   try{
-    const body = `path=${encodeURIComponent(pathRaw)}&pw=${encodeURIComponent(pw.trim())}`;
+    const body = `filename=${encodeURIComponent(filename)}&pw=${encodeURIComponent(pw.trim())}`;
     const res = await fetch("/api/delete", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -1501,7 +1502,7 @@ async function slowTick() {
   isSlowTickRunning = true;
   try {
     const [bucketsRes, daysRes] = await Promise.allSettled([
-      fetchJSON("/api/buckets_ui", { timeoutMs: 20000 }),
+      fetchJSON("/api/buckets_compact", { timeoutMs: 20000 }),
       fetchJSON("/api/days", { timeoutMs: 20000 })
     ]);
 

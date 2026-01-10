@@ -198,8 +198,8 @@ Example:
 **GET** `/api/buckets`
 
 * Returns sensor buckets for the last 24 hours (default 1-minute intervals)
-* Includes wind, temperature, humidity, and pressure data
-* Uses compact JSON keys to reduce size
+* Includes wind, temperature, humidity, pressure, and particulate matter data
+* Uses descriptive property names for clarity
 * Chunked transfer encoding to handle large responses
 
 Example:
@@ -210,30 +210,33 @@ Example:
   "bucket_seconds": 60,
   "buckets": [
     {
-      "t": 1734140200,
-      "w": {"a": 1.12, "m": 2.34, "s": 60},
-      "T": 23.5,
-      "H": 54.2,
-      "P": 1012.6
+      "timestamp": 1734140200,
+      "wind_speed_avg": 1.12,
+      "wind_speed_max": 2.34,
+      "wind_speed_samples": 60,
+      "temperature": 23.5,
+      "humidity": 54.2,
+      "pressure": 1012.6,
+      "pm1": 5.2,
+      "pm25": 12.8,
+      "pm10": 18.4
     }
   ]
 }
 ```
 
-**Field mapping:**
-- `t` = timestamp (epoch seconds)
-- `w.a` = average wind (m/s)
-- `w.m` = max wind (m/s)
-- `w.s` = sample count
-- `T` = temperature (°C)
-- `H` = humidity (%)
-- `P` = pressure (hPa)
+**Units:**
+- wind_speed (m/s)
+- temperature (°C)
+- humidity (%)
+- pressure (hPa)
+- pm1/pm25/pm10 (μg/m³)
 
 ---
 
 ### 3) Last 24h sensor buckets (compact format)
 
-**GET** `/api/buckets_ui`
+**GET** `/api/buckets_compact`
 
 * Internal endpoint used by the web UI
 * Array format (no keys) for size reduction
@@ -297,7 +300,7 @@ Example:
 
 ### 5) List CSV files
 
-**GET** `/api/files?dir=data`
+**GET** `/api/files`
 
 Example:
 
@@ -318,10 +321,10 @@ Example:
 
 ### 6) Download a single CSV
 
-**GET** `/download?path=/data/20251214.csv`
+**GET** `/download?filename=20251214.csv`
 
 * Forces browser download
-* Only allows `/data/*.csv`
+* Only allows `.csv` files
 * Path traversal blocked
 
 ---
@@ -340,7 +343,7 @@ Examples:
 
 * Streams ZIP directly (no temp files)
 * Uses ZIP **STORE** mode (no compression)
-* Includes only existing `/data/YYYYMMDD.csv` files
+* Includes only existing `YYYYMMDD.csv` files
 * `days` is clamped to `1 .. RETENTION_DAYS` (when `RETENTION_DAYS` > 0), or no upper limit (when `RETENTION_DAYS` = 0)
 
 ZIP filename:
@@ -355,19 +358,19 @@ last_<N>_days.zip
 
 **POST** `/api/delete`
 
-* Deletes a single CSV file from `/data`
+* Deletes a single CSV file
 * Requires password authentication
 * Rate limited: 10 attempts per hour
 
 Parameters:
-- `path`: File path (e.g., `/data/20251214.csv`)
+- `filename`: CSV filename (e.g., `20251214.csv`)
 - `pw`: Password
 
 Example:
 
 ```bash
 curl -X POST http://<device-ip>/api/delete \
-  -d "path=/data/20251214.csv&pw=ChangeMe"
+  -d "filename=20251214.csv&pw=ChangeMe"
 ```
 
 Response:
@@ -382,7 +385,7 @@ Response:
 
 **POST** `/api/clear_data`
 
-* Deletes all CSV files from `/data` directory
+* Deletes all CSV files
 * Requires password authentication
 * Rate limited: 10 attempts per hour
 
@@ -429,8 +432,8 @@ Response:
 
 ## Security notes
 
-* File downloads are restricted to `/data/*.csv`
-* Path traversal (`..`) blocked
+* File downloads only accept `.csv` filenames
+* Path traversal (`..`) and directory separators blocked
 * ZIP streaming avoids RAM exhaustion
 * Delete operations are password-protected:
   * Configured via `API_PASSWORD` constant (default: "ChangeMe")

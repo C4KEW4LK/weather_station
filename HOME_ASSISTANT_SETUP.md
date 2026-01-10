@@ -4,7 +4,7 @@ This weather station now includes a dedicated REST API endpoint optimized for Ho
 
 ## API Endpoint
 
-**URL:** `http://YOUR_DEVICE_IP/api/homeassistant`
+**URL:** `http://YOUR_DEVICE_IP/api/now`
 
 **Method:** GET
 
@@ -13,10 +13,10 @@ This weather station now includes a dedicated REST API endpoint optimized for Ho
 ## Available Sensors
 
 The endpoint provides the following data:
-- `temperature` - Temperature in °C
-- `humidity` - Relative humidity in %
-- `pressure` - Atmospheric pressure in hPa
-- `wind_speed` - Wind speed in m/s
+- `temp_c` - Temperature in °C
+- `hum_rh` - Relative humidity in %
+- `press_hpa` - Atmospheric pressure in hPa
+- `wind_ms` - Wind speed in m/s
 - `pm1` - PM1.0 particulate matter in μg/m³
 - `pm25` - PM2.5 particulate matter in μg/m³
 - `pm10` - PM10 particulate matter in μg/m³
@@ -24,7 +24,7 @@ The endpoint provides the following data:
 - `aqi_pm25_category` - AQI category (Good, Moderate, etc.)
 - `aqi_pm10` - Air Quality Index based on PM10
 - `aqi_pm10_category` - AQI category for PM10
-- `timestamp` - Local timestamp
+- `local_time` - Local timestamp
 - `bme280_ok` - BME280 sensor status (boolean)
 - `pms5003_ok` - PMS5003 sensor status (boolean)
 - `wifi_rssi` - WiFi signal strength in dBm
@@ -38,8 +38,8 @@ sensor:
   # Temperature sensor
   - platform: rest
     name: "Weather Station Temperature"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
-    value_template: "{{ value_json.temperature }}"
+    resource: "http://YOUR_DEVICE_IP/api/now"
+    value_template: "{{ value_json.temp_c }}"
     unit_of_measurement: "°C"
     device_class: temperature
     state_class: measurement
@@ -48,8 +48,8 @@ sensor:
   # Humidity sensor
   - platform: rest
     name: "Weather Station Humidity"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
-    value_template: "{{ value_json.humidity }}"
+    resource: "http://YOUR_DEVICE_IP/api/now"
+    value_template: "{{ value_json.hum_rh }}"
     unit_of_measurement: "%"
     device_class: humidity
     state_class: measurement
@@ -58,8 +58,8 @@ sensor:
   # Pressure sensor
   - platform: rest
     name: "Weather Station Pressure"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
-    value_template: "{{ value_json.pressure }}"
+    resource: "http://YOUR_DEVICE_IP/api/now"
+    value_template: "{{ value_json.press_hpa }}"
     unit_of_measurement: "hPa"
     device_class: pressure
     state_class: measurement
@@ -68,8 +68,8 @@ sensor:
   # Wind speed sensor
   - platform: rest
     name: "Weather Station Wind Speed"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
-    value_template: "{{ value_json.wind_speed }}"
+    resource: "http://YOUR_DEVICE_IP/api/now"
+    value_template: "{{ value_json.wind_ms }}"
     unit_of_measurement: "m/s"
     icon: mdi:weather-windy
     state_class: measurement
@@ -78,7 +78,7 @@ sensor:
   # PM2.5 sensor
   - platform: rest
     name: "Weather Station PM2.5"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
+    resource: "http://YOUR_DEVICE_IP/api/now"
     value_template: "{{ value_json.pm25 }}"
     unit_of_measurement: "μg/m³"
     device_class: pm25
@@ -88,7 +88,7 @@ sensor:
   # PM10 sensor
   - platform: rest
     name: "Weather Station PM10"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
+    resource: "http://YOUR_DEVICE_IP/api/now"
     value_template: "{{ value_json.pm10 }}"
     unit_of_measurement: "μg/m³"
     device_class: pm10
@@ -98,7 +98,7 @@ sensor:
   # AQI PM2.5 sensor
   - platform: rest
     name: "Weather Station AQI PM2.5"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
+    resource: "http://YOUR_DEVICE_IP/api/now"
     value_template: "{{ value_json.aqi_pm25 }}"
     unit_of_measurement: "AQI"
     device_class: aqi
@@ -108,7 +108,7 @@ sensor:
   # WiFi Signal
   - platform: rest
     name: "Weather Station WiFi Signal"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
+    resource: "http://YOUR_DEVICE_IP/api/now"
     value_template: "{{ value_json.wifi_rssi }}"
     unit_of_measurement: "dBm"
     device_class: signal_strength
@@ -124,16 +124,16 @@ For better efficiency, you can use a single REST sensor with JSON attributes to 
 sensor:
   - platform: rest
     name: "Weather Station"
-    resource: "http://YOUR_DEVICE_IP/api/homeassistant"
-    value_template: "{{ value_json.temperature }}"
+    resource: "http://YOUR_DEVICE_IP/api/now"
+    value_template: "{{ value_json.temp_c }}"
     unit_of_measurement: "°C"
     device_class: temperature
     state_class: measurement
     scan_interval: 60
     json_attributes:
-      - humidity
-      - pressure
-      - wind_speed
+      - hum_rh
+      - press_hpa
+      - wind_ms
       - pm1
       - pm25
       - pm10
@@ -141,25 +141,25 @@ sensor:
       - aqi_pm25_category
       - aqi_pm10
       - aqi_pm10_category
-      - timestamp
+      - local_time
       - wifi_rssi
 
 template:
   - sensor:
       - name: "Weather Station Humidity"
-        state: "{{ state_attr('sensor.weather_station', 'humidity') }}"
+        state: "{{ state_attr('sensor.weather_station', 'hum_rh') }}"
         unit_of_measurement: "%"
         device_class: humidity
         state_class: measurement
 
       - name: "Weather Station Pressure"
-        state: "{{ state_attr('sensor.weather_station', 'pressure') }}"
+        state: "{{ state_attr('sensor.weather_station', 'press_hpa') }}"
         unit_of_measurement: "hPa"
         device_class: pressure
         state_class: measurement
 
       - name: "Weather Station Wind Speed"
-        state: "{{ state_attr('sensor.weather_station', 'wind_speed') }}"
+        state: "{{ state_attr('sensor.weather_station', 'wind_ms') }}"
         unit_of_measurement: "m/s"
         icon: mdi:weather-windy
         state_class: measurement
@@ -199,7 +199,7 @@ template:
 
 You can test the endpoint with curl:
 ```bash
-curl http://YOUR_DEVICE_IP/api/homeassistant
+curl http://YOUR_DEVICE_IP/api/now
 ```
 
 Or visit the API documentation page at:

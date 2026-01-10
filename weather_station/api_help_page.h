@@ -26,7 +26,8 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
 
   <div class="card">
     <div><code>/api/now</code></div>
-    <div class="muted">Current readings and status flags.</div>
+    <div class="muted">Current readings and status flags.<br>
+    Units: wind_ms (m/s), temp_c (°C), hum_rh (%), press_hpa (hPa), pm1/pm25/pm10 (μg/m³), cpu_temp_c (°C), wifi_rssi (dBm), uptime_s (seconds)</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "epoch": 1734492345,
   "local_time": "2025-12-18 22:25",
@@ -55,52 +56,30 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
   </div>
 
   <div class="card">
-    <div><code>/api/homeassistant</code></div>
-    <div class="muted">Current readings formatted for Home Assistant REST sensor integration.</div>
-    <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
-  "temperature": 23.4,
-  "humidity": 55.1,
-  "pressure": 1012.3,
-  "wind_speed": 1.2,
-  "pm1": 5.2,
-  "pm25": 12.8,
-  "pm10": 18.4,
-  "aqi_pm25": 52,
-  "aqi_pm25_category": "Moderate",
-  "aqi_pm10": 45,
-  "aqi_pm10_category": "Good",
-  "timestamp": "2025-12-18 22:25",
-  "bme280_ok": true,
-  "pms5003_ok": true,
-  "wifi_rssi": -65
-}</code></pre>
-  </div>
-
-  <div class="card">
     <div><code>/api/buckets</code></div>
-    <div class="muted">Last 24h bucketed data. Compact JSON keys, full precision floats. Chunked transfer.</div>
+    <div class="muted">Last 24h bucketed data with descriptive property names. Chunked transfer.<br>
+    Units: wind_speed (m/s), temperature (°C), humidity (%), pressure (hPa), pm1/pm25/pm10 (μg/m³)</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "now_epoch": 1734492345,
   "bucket_seconds": 60,
   "buckets": [
     {
-      "t": 1734489600,
-      "w": {"a": 0.8, "m": 2.1, "s": 12},
-      "T": 22.9,
-      "H": 56.0,
-      "P": 1012.1,
+      "timestamp": 1734489600,
+      "wind_speed_avg": 0.8,
+      "wind_speed_max": 2.1,
+      "temperature": 22.9,
+      "humidity": 56.0,
+      "pressure": 1012.1,
       "pm1": 5.2,
       "pm25": 12.8,
       "pm10": 18.4
     }
   ]
-}
-Keys: t=time, w.a=avgWind, w.m=maxWind, w.s=samples, T=temp, H=humidity, P=pressure,
-pm1/pm25/pm10=particulate matter (μg/m³)</code></pre>
+}</code></pre>
   </div>
 
   <div class="card">
-    <div><code>/api/buckets_ui</code></div>
+    <div><code>/api/buckets_compact</code></div>
     <div class="muted">Compact array format (no keys). Full precision floats. Chunked with batching.<br>
     Array: [epoch, avgWind, maxWind, samples, tempC, humRH, pressHpa, pm1, pm25, pm10]</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
@@ -118,7 +97,8 @@ Array indices:
 
   <div class="card">
     <div><code>/api/days</code></div>
-    <div class="muted">Daily summaries kept in RAM.</div>
+    <div class="muted">Daily summaries.<br>
+    Units: Wind (m/s), Temp (°C), Hum (%), Press (hPa), PM1/PM25/PM10 (μg/m³)</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "days": [
     {
@@ -172,7 +152,7 @@ Array indices:
 
   <div class="card">
     <div><code>/api/files</code></div>
-    <div class="muted">List CSV files in <code>/data</code> directory. Always uses <code>dir=data</code>.</div>
+    <div class="muted">List available CSV files.</div>
     <pre style="background:#f9f9f9; padding:10px; border-radius:8px; overflow:auto;"><code>{
   "ok": true,
   "dir": "data",
@@ -196,13 +176,13 @@ Array indices:
   </div>
 
   <div class="card">
-    <div><code>/download?path=/data/YYYYMMDD.csv</code></div>
-    <div class="muted">Download a specific CSV from <code>/data</code> directory.</div>
+    <div><code>/download?filename=YYYYMMDD.csv</code></div>
+    <div class="muted">Download a specific CSV file.</div>
   </div>
 
   <div class="card">
     <div><code>/download_zip?days=N</code></div>
-    <div class="muted">Stream a ZIP of the last N daily CSVs (<code>/data</code> directory).</div>
+    <div class="muted">Stream a ZIP of the last N daily CSV files.</div>
   </div>
 
   <div class="card">

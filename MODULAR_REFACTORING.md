@@ -402,8 +402,8 @@ weather_station/
 - `/api/now` - Current sensor data
 - `/api/buckets` - Time-series data
 - `/api/days` - Daily summaries
-- `/api/files?dir=data` - File listing
-- `/download?path=/data/20251228.csv` - Download file
+- `/api/files` - File listing
+- `/download?filename=20251228.csv` - Download file
 - `/download_zip?days=7` - Download ZIP archive
 - `/api/delete` (POST) - Delete file
 - `/api/clear_data` (POST) - Clear all data
