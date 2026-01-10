@@ -4,11 +4,11 @@ This project implements a **Wi‑Fi connected weather station** using an **ESP32
 
 It provides:
 
-* Wind speed from pulse anemometer (1-second sampling)
+* Windspeed from pulse anemometer (1-second sampling)
 * Default 1-minute aggregated logging (adjustable), aligned to real time (NTP)
 * Daily CSV files with configurable retention
 * A built-in web UI with interactive plots
-* A REST API with full for all data
+* A REST API with current and historical sensor data
 * CSV and ZIP download endpoints
 * Password-protected file management
 
