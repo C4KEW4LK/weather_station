@@ -72,7 +72,6 @@ Wind speed is calculated linearly from pulse rate over a 1-second window.
 ### Logging interval
 
 * **Every 1 minute** (configurable via `LogConfig::BUCKET_SECONDS` in `config.h`)
-* Wind speed sampled once per second into each bucket
 
 ### Logged fields
 
