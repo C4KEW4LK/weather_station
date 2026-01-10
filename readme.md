@@ -1,16 +1,18 @@
-# ESP32-C3 Anemometer + BME280 Logger
+# ESP32-C3 Weather Station
 
-This project implements a **Wi‑Fi connected wind + environment logger** using an **ESP32‑C3**, a **pulse-based anemometer**, a **BME280** (temperature, humidity, pressure), and an **SD card** for long-term storage.
+This project implements a **Wi‑Fi connected weather station** using an **ESP32‑C3**, a **pulse-based anemometer**, a **BME280** (temperature, humidity, pressure), a **PMS5003** (particulate matter sensor), and an **SD card** for long-term storage.
 
 It provides:
 
-* Real-time wind speed calculation (1-second sampling)
+* Wind speed from pulse anemometer (1-second sampling)
 * Default 1-minute aggregated logging (adjustable), aligned to real time (NTP)
-* Daily CSV files with configurable retention (or keep forever)
-* A built-in web UI with interactive graphing and zoom
-* A REST API with full precision sensor data
+* Daily CSV files with configurable retention
+* A built-in web UI with interactive plots
+* A REST API with full for all data
 * CSV and ZIP download endpoints
 * Password-protected file management
+
+![Web UI Example](docs/webui_example.png)
 
 ---
 
@@ -18,17 +20,27 @@ It provides:
 
 * **ESP32-C3**
 * **Pulse anemometer**
-  * Connected to **GPIO 3** (`PULSE_PIN` in `weather_station.ino`)
-  * 20 pulses per second = **1.75 m/s**
-  * 2ms debounce filter implemented in ISR to prevent spurious triggers
+  * Connected to **GPIO 3** (configurable via `WindConfig::PULSE_PIN` in `config.h`)
+  * 2ms debounce filter implemented in ISR to prevent spurious triggers (max reading is ~ 157km/h)
 * **BME280** (I2C)
   * Default address `0x76` (fallback `0x77`)
   * Uses the board's default SDA/SCL pins (`Wire.begin()`)
+  * Altitude correction configurable via `BME280Config::ALTITUDE_METERS` in `config.h`
+* **PMS5003** (UART)
+  * RX -> **GPIO 4** (configurable via `PMS5003Config::RX_PIN` in `config.h`)
+  * TX -> **GPIO 5** (configurable via `PMS5003Config::TX_PIN` in `config.h`)
+  * Measures PM1.0, PM2.5, and PM10 particulate matter
+  * Automatically calculates AQI (Air Quality Index)
+  * Can be disabled via `PMS5003Config::ENABLE = false` in `config.h`
 * **Micro SD card module** (SPI)
-  * CS -> **GPIO 20** (`SD_CS_PIN`), with your board's SPI pins for SCK/MISO/MOSI
-* Pull-up on anemometer signal recommended
+  * CS -> **GPIO 20** (configurable via `SDConfig::CS_PIN` in `config.h`)
+  * Uses your board's SPI pins for SCK/MISO/MOSI
 
-**Note:** If you change the pulse input to GPIO0, remember it is a boot-strap pin on ESP32-C3 and must not be held low during boot.
+### Example Build
+
+![3D Printed Weather Station](docs/3d%20printed%20weather%20station.jpeg)
+
+*Example of a complete weather station build with 3D printed enclosure*
 
 ---
 
@@ -46,7 +58,7 @@ Wind speed is calculated linearly from pulse rate over a 1-second window.
 ## Time handling
 
 * **Requires WiFi connection** for timestamped logging
-* Uses **WiFiManager** for Wi‑Fi configuration
+* Uses **WiFiManager** for Wi‑Fi setup/configuration
 * Uses **NTP** for time sync
 * Timezone configured via `TZ` string (default: Australia/Sydney)
 * All logging aligned to:
@@ -59,69 +71,114 @@ Wind speed is calculated linearly from pulse rate over a 1-second window.
 
 ### Logging interval
 
-* **Every 1 minute** (configurable via `BUCKET_SECONDS` in `weather_station.ino`)
+* **Every 1 minute** (configurable via `LogConfig::BUCKET_SECONDS` in `config.h`)
 * Wind speed sampled once per second into each bucket
 
 ### Logged fields
 
 Each row contains:
 
-| Field         | Description                      |
-| ------------- | -------------------------------- |
-| `datetime`    | Local time (`YYYY-MM-DD HH:MM`)  |
-| `epoch`       | Unix epoch (seconds)             |
-| `wind_avg_ms` | Average wind over bucket (m/s)   |
-| `wind_max_ms` | Max wind over bucket (m/s)       |
-| `temp_c`      | Temperature (°C)                 |
-| `hum_rh`      | Relative humidity (%)            |
-| `press_hpa`   | Pressure (hPa)                   |
-| `samples`     | Number of wind samples in bucket |
+| Field         | Description                           |
+| ------------- | ------------------------------------- |
+| `datetime`    | Local time (`YYYY-MM-DD HH:MM`)       |
+| `epoch`       | Unix epoch (seconds)                  |
+| `wind_avg_ms` | Average wind over bucket (m/s)        |
+| `wind_max_ms` | Max wind over bucket (m/s)            |
+| `temp_c`      | Temperature (°C)                      |
+| `hum_rh`      | Relative humidity (%)                 |
+| `press_hpa`   | Pressure (hPa)                        |
+| `pm1`         | PM1.0 particulate matter (μg/m³)      |
+| `pm25`        | PM2.5 particulate matter (μg/m³)      |
+| `pm10`        | PM10 particulate matter (μg/m³)       |
+| `samples`     | Number of wind samples in bucket      |
 
 ---
 
-## SD card layout
+## SD card
+
+FAT32 formatted
 
 ```
 /
 └── data/
     ├── YYYYMMDD.csv          # One per day (1-min rows)
     └── ...
+└── web/
+    ├── index.html
+    └── app.js
 ```
 
 ### Daily files (`/data`)
 
 * One CSV per day
-* Automatically deleted after `RETENTION_DAYS` (default 3600 days, set to 0 to never delete)
+* Automatically deleted after `RETENTION_DAYS` (default: 0 = never delete)
 * See Configuration options below for details
 
 ---
 
 ## Configuration options
 
-Key constants in `weather_station.ino`:
+All configuration is in `config.h` using namespaces:
 
 ```cpp
-static const char* API_PASSWORD = "ChangeMe";        // Password for delete operations
-static constexpr int BUCKET_SECONDS = 60;            // Logging interval (1 minute)
-static constexpr int RETENTION_DAYS = 3600;          // Days to keep CSV files (0 = never delete)
-static constexpr int FILES_PER_PAGE = 30;            // Files shown per page in UI
-static constexpr int MAX_PLOT_POINTS = 500;          // Max points rendered on plots (for performance)
+// Security
+static const char* API_PASSWORD = "ChangeMe";
+
+// Wind sensor pins and calibration
+namespace WindConfig {
+  static constexpr int PULSE_PIN = 3;                    // GPIO pin
+  static constexpr float PPS_TO_MS = 1.75f / 20.0f;      // 20pps = 1.75m/s
+}
+
+// BME280 environmental sensor
+namespace BME280Config {
+  static constexpr bool ENABLE = true;
+  static constexpr float ALTITUDE_METERS = 580.0f;       // For MSLP calculation
+}
+
+// PMS5003 air quality sensor
+namespace PMS5003Config {
+  static constexpr bool ENABLE = true;
+  static constexpr int RX_PIN = 4;
+  static constexpr int TX_PIN = 5; // not technically needed
+}
+
+// SD card
+namespace SDConfig {
+  static constexpr int CS_PIN = 20;
+}
+
+// Data logging
+namespace LogConfig {
+  static constexpr int BUCKET_SECONDS = 60;              // 1 minute intervals
+  static constexpr int RETENTION_DAYS = 0;               // 0 = never delete
+  static constexpr int DAYS_HISTORY = 30;                // History available/shown for /api/days
+}
+
+// Web UI
+namespace UIConfig {
+  static constexpr int FILES_PER_PAGE = 30;
+  static constexpr int MAX_PLOT_POINTS = 500; // limit for perfromance
+}
 ```
 
-* `API_PASSWORD`: Password for file deletion and clear data operations (default: "ChangeMe")
-* `BUCKET_SECONDS`: How often data is logged (default 1 minute = 60 seconds)
-* `RETENTION_DAYS`: Auto-delete CSV files older than this many days (set to 0 to never delete)
-* `FILES_PER_PAGE`: Number of files shown per page in the CSV download section
-* `MAX_PLOT_POINTS`: Maximum number of points rendered on plots to prevent performance issues with large datasets. When zooming, this limit applies only to the visible region, revealing more detail.
+* `API_PASSWORD`: Password for protected operations (default: "ChangeMe")
+* `LogConfig::BUCKET_SECONDS`: How often data is logged (default 1 minute = 60 seconds)
+* `LogConfig::RETENTION_DAYS`: Auto-delete CSV files older than this many days (0 = never delete)
+* `UIConfig::FILES_PER_PAGE`: Number of files shown per page in the CSV download section
+* `UIConfig::MAX_PLOT_POINTS`: Maximum number of points rendered on plots. When zooming, this limit applies only to the visible region, revealing more detail.
+* `PMS5003Config::ENABLE`: Enable/disable particulate matter sensor
+* `BME280Config::ALTITUDE_METERS`: Station altitude for mean sea level pressure calculation
 
 ---
 
 ## Storage usage (typical)
 
-Assuming ~80 bytes per row:
+Assuming ~100 bytes per row (with PM data):
 
 * 1440 rows/day ≈ **100 KB/day**
-* 3600 days (≈ 10 years) ≈ **~400 MB** (with default retention setting)
+* 365 days (1 year) ≈ **~50 MB**
+* 3650 days (10 years) ≈ **~500 MB**
 
 ---
 
@@ -138,18 +195,20 @@ http://<device-ip>/
 * **Current readings:**
   * Wind speed (km/h), pulses per second
   * Temperature, humidity, pressure
+  * PM1.0, PM2.5, PM10 levels with AQI (Air Quality Index)
+  * Sensor status indicators
   * Uptime and RAM usage
 
 * **Last 24h graphs:**
   * Wind speed (average and max lines with dual hover dots)
   * Temperature, humidity, and pressure
+  * Air quality (PM1.0, PM2.5, PM10)
   * **Interactive zoom:** Click and drag to zoom, double-click to reset
   * Auto-scaling y-axis when zoomed to show detail in visible range
   * Smart tooltip positioning (auto-adjusts near edges)
-  * Performance optimization (max 500 points, configurable)
 
 * **Daily summaries table:**
-  * Wind, temperature, humidity, and pressure min/max/avg
+  * Wind, temperature, humidity, pressure, and PM min/max/avg
   * Scrollable with sticky date column
   * Sorted from most recent to oldest
 
@@ -177,17 +236,29 @@ Example:
 
 ```json
 {
-  "epoch": 1734158023,
-  "local_time": "2025-12-14 14:20",
-  "wind_pps": 12.4,
-  "wind_ms": 1.09,
+  "epoch": 1734492345,
+  "local_time": "2025-12-18 22:25",
+  "wind_pps": 0.7,
+  "wind_ms": 1.2,
   "bme280_ok": true,
-  "temp_c": 23.41,
-  "hum_rh": 54.2,
-  "press_hpa": 1012.6,
+  "temp_c": 23.4,
+  "hum_rh": 55.1,
+  "press_hpa": 1012.3,
+  "pms5003_ok": true,
+  "pm1": 5.2,
+  "pm25": 12.8,
+  "pm10": 18.4,
+  "aqi_pm25": 52,
+  "aqi_pm25_category": "Moderate",
+  "aqi_pm10": 45,
+  "aqi_pm10_category": "Good",
   "sd_ok": true,
-  "uptime_ms": 3600000,
-  "retention_days": 30
+  "cpu_temp_c": 45.2,
+  "uptime_s": 12345,
+  "retention_days": 360,
+  "wifi_rssi": -65,
+  "free_heap": 245000,
+  "heap_size": 327680
 }
 ```
 
@@ -240,17 +311,17 @@ Example:
 
 * Internal endpoint used by the web UI
 * Array format (no keys) for size reduction
-* Each bucket is an array of 7 full-precision numbers
+* Each bucket is an array of 10 full-precision numbers
 * Chunked transfer encoding with batching for performance
 
 Example:
 
 ```json
 {
-  "now_epoch": 1734158023,
+  "now_epoch": 1734492345,
   "bucket_seconds": 60,
   "buckets": [
-    [1734140200, 1.12, 2.34, 60, 23.5, 54.2, 1012.6]
+    [1734489600, 0.8, 2.1, 12, 22.9, 56.0, 1012.1, 5.2, 12.8, 18.4]
   ]
 }
 ```
@@ -263,9 +334,9 @@ Example:
 - `[4]` = temperature (°C)
 - `[5]` = humidity (%)
 - `[6]` = pressure (hPa)
-
-**Example bucket:** `[1734140200, 1.12, 2.34, 60, 23.5, 54.2, 1012.6]`
-= 2023-12-14 09:30, 1.12 m/s avg, 2.34 m/s max, 60 samples, 23.5°C, 54.2%, 1012.6 hPa
+- `[7]` = PM1.0 (μg/m³)
+- `[8]` = PM2.5 (μg/m³)
+- `[9]` = PM10 (μg/m³)
 
 ---
 
@@ -273,7 +344,7 @@ Example:
 
 **GET** `/api/days`
 
-Returns daily summaries for wind, temperature, and humidity from RAM (last 30 days + current day).
+Returns daily summaries for wind, temperature, humidity, pressure, and particulate matter from RAM (last 30 days + current day).
 
 Example:
 
@@ -281,16 +352,25 @@ Example:
 {
   "days": [
     {
-      "dayStartEpoch": 1734057600,
-      "dayStartLocal": "2025-12-13 00:00",
-      "avgWind": 1.45,
-      "maxWind": 7.12,
-      "avgTemp": 23.5,
-      "minTemp": 18.2,
-      "maxTemp": 28.9,
-      "avgHum": 54.2,
-      "minHum": 42.0,
-      "maxHum": 68.5
+      "dayStartEpoch": 1734480000,
+      "dayStartLocal": "2025-12-18 00:00",
+      "avgWind": 1.2,
+      "maxWind": 5.8,
+      "avgTemp": 24.1,
+      "minTemp": 19.5,
+      "maxTemp": 28.0,
+      "avgHum": 58.2,
+      "minHum": 44.0,
+      "maxHum": 71.5,
+      "avgPress": 1012.5,
+      "minPress": 1008.2,
+      "maxPress": 1016.8,
+      "avgPM1": 5.3,
+      "maxPM1": 8.2,
+      "avgPM25": 12.4,
+      "maxPM25": 18.9,
+      "avgPM10": 18.1,
+      "maxPM10": 25.7
     }
   ]
 }
@@ -302,6 +382,8 @@ Example:
 
 **GET** `/api/files`
 
+Lists available CSV files in the data directory.
+
 Example:
 
 ```json
@@ -310,8 +392,12 @@ Example:
   "dir": "data",
   "files": [
     {
-      "path": "/data/20251214.csv",
-      "size": 23456
+      "path": "20251218.csv",
+      "size": 12345
+    },
+    {
+      "path": "20251217.csv",
+      "size": 12001
     }
   ]
 }
@@ -319,7 +405,35 @@ Example:
 
 ---
 
-### 6) Download a single CSV
+### 6) List web UI files
+
+**GET** `/api/ui_files`
+
+Lists web UI files (index.html, app.js) stored on the SD card with size and modification time.
+
+Example:
+
+```json
+{
+  "ok": true,
+  "files": [
+    {
+      "file": "index.html",
+      "size": 8192,
+      "lastModified": 1734492345
+    },
+    {
+      "file": "app.js",
+      "size": 45678,
+      "lastModified": 1734492350
+    }
+  ]
+}
+```
+
+---
+
+### 7) Download a single CSV
 
 **GET** `/download?filename=20251214.csv`
 
@@ -329,7 +443,7 @@ Example:
 
 ---
 
-### 7) Download last N days as ZIP
+### 8) Download last N days as ZIP
 
 **GET** `/download_zip?days=N`
 
@@ -354,7 +468,39 @@ last_<N>_days.zip
 
 ---
 
-### 8) Delete a single file (password protected)
+### 9) Upload web UI files (password protected)
+
+**POST** `/upload`
+
+Uploads files to the SD card (typically web UI files like index.html or app.js).
+
+* Requires password authentication
+* Rate limited: 10 attempts per hour
+* Uses multipart form data
+
+Parameters:
+- `file`: File to upload
+- `path`: Destination path (e.g., `/web/index.html`)
+- `pw`: Password
+
+Example:
+
+```bash
+curl -F "file=@index.html" -F "path=/web/index.html" -F "pw=ChangeMe" http://<device-ip>/upload
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "bytes": 12345
+}
+```
+
+---
+
+### 10) Delete a single file (password protected)
 
 **POST** `/api/delete`
 
@@ -381,7 +527,7 @@ Response:
 
 ---
 
-### 9) Clear all SD data (password protected)
+### 11) Clear all SD data (password protected)
 
 **POST** `/api/clear_data`
 
@@ -409,17 +555,21 @@ Response:
 
 ---
 
-### 10) Reboot device
+### 12) Reboot device (password protected)
 
 **POST** `/api/reboot`
 
 * Reboots the ESP32 device
-* No authentication required
+* Requires password authentication
+* Rate limited: 10 attempts per hour
+
+Parameters:
+- `pw`: Password
 
 Example:
 
 ```bash
-curl -X POST http://<device-ip>/api/reboot
+curl -X POST http://<device-ip>/api/reboot -d "pw=ChangeMe"
 ```
 
 Response:
@@ -432,22 +582,14 @@ Response:
 
 ## Security notes
 
-* File downloads only accept `.csv` filenames
-* Path traversal (`..`) and directory separators blocked
-* ZIP streaming avoids RAM exhaustion
-* Delete operations are password-protected:
-  * Configured via `API_PASSWORD` constant (default: "ChangeMe")
+* Password-protected operations:
+  * Configured via `API_PASSWORD` constant in `config.h` (default: "ChangeMe")
   * Rate limiting: 10 attempts per hour
+  * Correct password resets the counter
   * Required for:
     * Individual file deletion (`POST /api/delete`)
     * Clear all SD data (`POST /api/clear_data`)
+    * Upload files (`POST /upload`)
+    * Reboot device (`POST /api/reboot`)
 
 ---
-
-## Known limitations
-
-* No authentication (LAN-trusted device)
-* ZIP uses STORE (fast, not compressed)
-
---
-

@@ -294,7 +294,7 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
 
   <div class="card">
     <div><code>/api/delete</code> (POST, pw)</div>
-    <div class="muted">Delete a single CSV (requires <code>path</code> and <code>pw</code>).</div>
+    <div class="muted">Delete a single CSV file. Requires <code>filename</code> and <code>pw</code>.</div>
     <pre><code>{
   "ok": true
 }</code></pre>
