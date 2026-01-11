@@ -69,7 +69,7 @@ function getDefaultConfig() {
         unit: "km/h",
         conversionFactor: 3.6,
         series: [
-          { field: "avgWind", color: "black", label: "Wind" },
+          { field: "avgWind", color: "var(--wind-line-color)", label: "Wind" },
           { field: "maxWind", color: "#f0ad4e", label: "Gust" }
         ]
       },
@@ -108,23 +108,23 @@ function getDefaultConfig() {
     ],
     tableColumns: [
       { field: "day", label: "Day", unit: "", conversionFactor: 1.0, decimals: 0, bgColor: "", group: "" },
-      { field: "avgWind", label: "avg", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "#f8f8f8", group: "Wind Speed" },
-      { field: "maxWind", label: "max", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "#f8f8f8", group: "Wind Speed" },
+      { field: "avgWind", label: "avg", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Wind Speed" },
+      { field: "maxWind", label: "max", unit: "km/h", conversionFactor: 3.6, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Wind Speed" },
       { field: "avgTemp", label: "avg", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Temperature" },
       { field: "minTemp", label: "min", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Temperature" },
       { field: "maxTemp", label: "max", unit: "°C", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Temperature" },
-      { field: "avgHum", label: "avg", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Humidity" },
-      { field: "minHum", label: "min", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Humidity" },
-      { field: "maxHum", label: "max", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Humidity" },
+      { field: "avgHum", label: "avg", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Humidity" },
+      { field: "minHum", label: "min", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Humidity" },
+      { field: "maxHum", label: "max", unit: "%", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Humidity" },
       { field: "avgPress", label: "avg", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Pressure" },
       { field: "minPress", label: "min", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Pressure" },
       { field: "maxPress", label: "max", unit: "hPa", conversionFactor: 1.0, decimals: 1, bgColor: "", group: "Pressure" },
-      { field: "avgPM1", label: "PM1 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
-      { field: "maxPM1", label: "PM1 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
-      { field: "avgPM25", label: "PM2.5 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
-      { field: "maxPM25", label: "PM2.5 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
-      { field: "avgPM10", label: "PM10 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" },
-      { field: "maxPM10", label: "PM10 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "#f8f8f8", group: "Particulate Matter" }
+      { field: "avgPM1", label: "PM1 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Particulate Matter" },
+      { field: "maxPM1", label: "PM1 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Particulate Matter" },
+      { field: "avgPM25", label: "PM2.5 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Particulate Matter" },
+      { field: "maxPM25", label: "PM2.5 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Particulate Matter" },
+      { field: "avgPM10", label: "PM10 avg", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Particulate Matter" },
+      { field: "maxPM10", label: "PM10 max", unit: "μg/m³", conversionFactor: 1.0, decimals: 1, bgColor: "var(--table-cell-bg)", group: "Particulate Matter" }
     ],
     filesPerPage: 30,
     maxPlotPoints: 500
@@ -240,6 +240,7 @@ function generatePlots() {
         </defs>
         <g class="yaxis" id="axis_${plot.id}"></g>
         <g class="xaxis" id="axis_x_${plot.id}"></g>
+        <g class="midnight-lines" id="midnight_${plot.id}"></g>
         <line id="hover_line_${plot.id}" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
         ${seriesHTML}
         <rect id="select_rect_${plot.id}" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
@@ -286,9 +287,9 @@ function generateTableHeaders() {
   // First row: group headers
   let row1 = '<tr>';
   for (const grp of groups) {
-    const bgStyle = grp.bgColor ? ` style="background-color: ${grp.bgColor}"` : '';
+    const bgClass = grp.bgColor ? ' class="table-alt-bg"' : '';
     if (grp.name) {
-      row1 += `<th colspan="${grp.colspan}"${bgStyle}>${grp.name}</th>`;
+      row1 += `<th colspan="${grp.colspan}"${bgClass}>${grp.name}</th>`;
     } else {
       row1 += `<th rowspan="3">${CONFIG.tableColumns[0].label}</th>`;
     }
@@ -299,8 +300,8 @@ function generateTableHeaders() {
   let row2 = '<tr>';
   for (let i = 1; i < CONFIG.tableColumns.length; i++) {
     const col = CONFIG.tableColumns[i];
-    const bgStyle = col.bgColor ? ` style="background-color: ${col.bgColor}"` : '';
-    row2 += `<th${bgStyle}>${col.label}</th>`;
+    const bgClass = col.bgColor ? ' class="table-alt-bg"' : '';
+    row2 += `<th${bgClass}>${col.label}</th>`;
   }
   row2 += '</tr>';
 
@@ -309,8 +310,8 @@ function generateTableHeaders() {
   for (let i = 1; i < CONFIG.tableColumns.length; i++) {
     const col = CONFIG.tableColumns[i];
     const unitText = col.unit ? `(${col.unit})` : '';
-    const bgStyle = col.bgColor ? ` style="background-color: ${col.bgColor}"` : '';
-    row3 += `<th${bgStyle}>${unitText}</th>`;
+    const bgClass = col.bgColor ? ' class="table-alt-bg"' : '';
+    row3 += `<th${bgClass}>${unitText}</th>`;
   }
   row3 += '</tr>';
 
@@ -899,6 +900,41 @@ function renderXAxis(axisId, xDomain, dims = chartDims){
   axis.innerHTML = html;
 }
 
+function renderMidnightLines(midnightId, xDomain, dims = chartDims){
+  const container = document.getElementById(midnightId);
+  if (!container) return;
+  if (!xDomain){
+    container.innerHTML = "";
+    return;
+  }
+
+  const xRange = dims.width - dims.padLeft - dims.padRight;
+  const span = xDomain.max - xDomain.min;
+  let html = '';
+
+  // Find first midnight within or after xDomain.min
+  const startDate = new Date(xDomain.min * 1000);
+  const firstMidnight = new Date(startDate);
+  firstMidnight.setHours(0, 0, 0, 0);
+  if (firstMidnight <= startDate) {
+    firstMidnight.setDate(firstMidnight.getDate() + 1);
+  }
+
+  // Draw vertical lines at each midnight
+  let currentMidnight = new Date(firstMidnight);
+  while (currentMidnight / 1000 <= xDomain.max) {
+    const midnightSeconds = currentMidnight / 1000;
+    const norm = (midnightSeconds - xDomain.min) / span;
+    const x = dims.padLeft + norm * xRange;
+
+    html += `<line x1="${x.toFixed(1)}" y1="${dims.padTop}" x2="${x.toFixed(1)}" y2="${dims.height - dims.padBottom}" stroke="var(--midnight-line)" stroke-width="1.5" stroke-dasharray="4 2" opacity="0.8"/>`;
+
+    currentMidnight.setDate(currentMidnight.getDate() + 1);
+  }
+
+  container.innerHTML = html;
+}
+
 function renderPolyline(values, field, elemId, domain, dims = chartDims, color, xDomain){
   const el = document.getElementById(elemId);
   if (!el) return;
@@ -963,7 +999,11 @@ function renderSingleSeries(values, field, elemId, color, axisId, xAxisId){
   const domain = computeDomain(visibleData.length > 0 ? visibleData : filtered, [field]);
 
   renderAxis(axisId, domain);
-  if (xAxisId) renderXAxis(xAxisId, displayDomain);
+  if (xAxisId) {
+    renderXAxis(xAxisId, displayDomain);
+    const midnightId = xAxisId.replace('axis_x_', 'midnight_');
+    renderMidnightLines(midnightId, displayDomain);
+  }
   renderPolyline(visibleData.length > 0 ? visibleData : filtered, field, elemId, domain, chartDims, color, displayDomain);
   if (plotState[key]) {
     plotState[key].series = filtered;
@@ -1020,7 +1060,8 @@ function renderWind(values){
 
   renderAxis("axis_wind", domain);
   renderXAxis("axis_x_wind", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "black", displayDomain);
+  renderMidnightLines("midnight_wind", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "var(--wind-line-color)", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
   plotState.wind.series = filtered;  // Store original m/s data, not converted
   plotState.wind.xDomain = xDomain;
@@ -1075,6 +1116,7 @@ function renderPM(values){
 
   renderAxis("axis_pm", domain);
   renderXAxis("axis_x_pm", displayDomain);
+  renderMidnightLines("midnight_pm", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM25", "line_pm", domain, chartDims, "#ff6600", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM10", "line_pm_pm10", domain, chartDims, "#996633", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM1", "line_pm_pm1", domain, chartDims, "#9966cc", displayDomain);
@@ -1108,7 +1150,7 @@ function renderDays(days){
       }
 
       if (col.bgColor) {
-        td.style.backgroundColor = col.bgColor;
+        td.classList.add('table-alt-bg');
       }
 
       tr.appendChild(td);

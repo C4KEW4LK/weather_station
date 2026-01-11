@@ -9,15 +9,47 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
   <title>Weather Station API</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='40' r='18' fill='%23FFB000'/><circle cx='50' cy='40' r='12' fill='%23FFC933'/><path d='M50 10v8M50 62v8M78 40h8M14 40h8M71 19l6-6M23 61l6-6M71 61l6 6M23 19l6 6' stroke='%23FFB000' stroke-width='3' stroke-linecap='round'/><ellipse cx='30' cy='64' rx='16' ry='10' fill='%23E0E0E0'/><ellipse cx='50' cy='60' rx='22' ry='14' fill='%23F0F0F0'/><ellipse cx='70' cy='64' rx='16' ry='10' fill='%23E8E8E8'/></svg>"/>
   <style>
+    :root {
+      --bg-color: #fff;
+      --text-color: #333;
+      --card-border: #e0e0e0;
+      --card-bg: #fff;
+      --muted-color: #666;
+      --code-bg: #f5f5f5;
+      --code-border: #e8e8e8;
+      --pre-bg: #f9f9f9;
+      --table-stripe: #f8f8f8;
+      --link-color: #0066cc;
+      --button-bg: #fff;
+      --button-border: #ddd;
+    }
+
+    body.dark-mode {
+      --bg-color: #1a1a1a;
+      --text-color: #e0e0e0;
+      --card-border: #404040;
+      --card-bg: #2a2a2a;
+      --muted-color: #999;
+      --code-bg: #333;
+      --code-border: #444;
+      --pre-bg: #2a2a2a;
+      --table-stripe: #333;
+      --link-color: #66b3ff;
+      --button-bg: #2a2a2a;
+      --button-border: #404040;
+    }
+
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
       margin: 0;
       padding: 20px;
       line-height: 1.6;
-      color: #333;
+      color: var(--text-color);
+      background-color: var(--bg-color);
       max-width: 1200px;
       margin: 0 auto;
+      transition: background-color 0.3s, color 0.3s;
     }
     h2 {
       margin: 0 0 8px 0;
@@ -25,26 +57,26 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
       font-weight: 600;
     }
     .card {
-      border: 1px solid #e0e0e0;
+      border: 1px solid var(--card-border);
       border-radius: 8px;
       padding: 16px;
       margin: 16px 0;
-      background: #fff;
+      background: var(--card-bg);
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
     code {
-      background: #f5f5f5;
+      background: var(--code-bg);
       padding: 2px 6px;
       border-radius: 4px;
       font-family: 'Consolas', 'Monaco', monospace;
       font-size: 0.9em;
     }
     .muted {
-      color: #666;
+      color: var(--muted-color);
       font-size: 0.95em;
     }
     a {
-      color: #0066cc;
+      color: var(--link-color);
       text-decoration: none;
     }
     a:hover {
@@ -56,10 +88,10 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
     }
     pre code {
       display: block;
-      background: #f9f9f9;
+      background: var(--pre-bg);
       padding: 12px;
       border-radius: 6px;
-      border: 1px solid #e8e8e8;
+      border: 1px solid var(--code-border);
       overflow-x: auto;
       line-height: 1.4;
     }
@@ -69,7 +101,7 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
       margin: 10px 0;
     }
     tr:nth-child(even) {
-      background: #f8f8f8;
+      background: var(--table-stripe);
     }
     td {
       padding: 4px 8px;
@@ -89,11 +121,36 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
     }
     .mt-1 { margin-top: 8px; }
     .mt-2 { margin-top: 10px; }
+    .header-flex {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    #theme-toggle {
+      padding: 8px 12px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 10px;
+      border: 1px solid var(--button-border);
+      background: var(--button-bg);
+      color: var(--text-color);
+      transition: transform 0.2s;
+    }
+    #theme-toggle:hover {
+      transform: scale(1.05);
+    }
   </style>
 </head>
 <body>
-  <h2>API Reference</h2>
-  <div class="muted">Endpoints served by this device.</div>
+  <div class="header-flex">
+    <div>
+      <h2>API Reference</h2>
+      <div class="muted">Endpoints served by this device.</div>
+    </div>
+    <button id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">☾</button>
+  </div>
   <div class="mt-2"><a href="/"><- Back to dashboard</a></div>
 
   <div class="card">
@@ -319,6 +376,41 @@ static const char API_HELP_HTML[] PROGMEM = R"HTML(
   "bytes": 12345
 }</code></pre>
   </div>
+
+<script>
+// Dark mode functionality
+function toggleTheme() {
+  const body = document.body;
+  const themeToggle = document.getElementById('theme-toggle');
+
+  if (body.classList.contains('dark-mode')) {
+    body.classList.remove('dark-mode');
+    themeToggle.textContent = '☾';
+    themeToggle.title = 'Switch to dark mode';
+    localStorage.setItem('theme', 'light');
+  } else {
+    body.classList.add('dark-mode');
+    themeToggle.textContent = '☼';
+    themeToggle.title = 'Switch to light mode';
+    localStorage.setItem('theme', 'dark');
+  }
+}
+
+// Load saved theme on page load
+(function() {
+  const savedTheme = localStorage.getItem('theme');
+  const themeToggle = document.getElementById('theme-toggle');
+
+  if (savedTheme === 'dark') {
+    document.body.classList.add('dark-mode');
+    themeToggle.textContent = '☼';
+    themeToggle.title = 'Switch to light mode';
+  } else {
+    themeToggle.textContent = '☾';
+    themeToggle.title = 'Switch to dark mode';
+  }
+})();
+</script>
 </body>
 </html>
 )HTML";

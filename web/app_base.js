@@ -560,7 +560,7 @@ function renderWind(values){
 
   renderAxis("axis_wind", domain);
   renderXAxis("axis_x_wind", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "black", displayDomain);
+  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "var(--wind-line-color)", displayDomain);
   renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
   plotState.wind.series = valuesKm;
   plotState.wind.xDomain = xDomain;
@@ -676,9 +676,10 @@ async function loadFiles(dir){
     let html = "<ul style='margin:8px 0; padding-left:18px'>";
     for (const f of pageFiles){
       const p = f.path;
+      const filename = p.substring(p.lastIndexOf('/') + 1);
       const s = bytesPretty(f.size);
-      const dl = `/download?path=${encodeURIComponent(p)}`;
-      html += `<li><a href="${dl}">${p}</a> <span class="muted">(${s})</span> <button class="small" style="padding:4px 6px; border-radius:6px;" onclick="deleteFile('${p}','${dir}')">Delete</button></li>`;
+      const dl = `/download?filename=${encodeURIComponent(filename)}`;
+      html += `<li><a href="${dl}">${p}</a> <span class="muted">(${s})</span> <button class="small" style="padding:4px 6px; border-radius:6px;" onclick="deleteFile('${filename}','${dir}')">Delete</button></li>`;
     }
     html += "</ul>";
     target.innerHTML = html;
@@ -730,7 +731,7 @@ function downloadZip(){
   window.location = `/download_zip?days=${encodeURIComponent(days)}`;
 }
 
-async function deleteFile(pathRaw, dir){
+async function deleteFile(filename, dir){
   if (!confirm("Delete this file from SD?")) return;
   const pw = prompt("Password required to delete file:");
   if (!(pw && pw.trim().length)) {
@@ -738,7 +739,7 @@ async function deleteFile(pathRaw, dir){
     return;
   }
   try{
-    const body = `path=${encodeURIComponent(pathRaw)}&pw=${encodeURIComponent(pw.trim())}`;
+    const body = `filename=${encodeURIComponent(filename)}&pw=${encodeURIComponent(pw.trim())}`;
     const res = await fetch("/api/delete", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -823,7 +824,7 @@ async function tick(){
     document.getElementById("ram").textContent = heapSize > 0 ? `${bytesPretty(freeHeap)} free (${pctUsed}% used)` : "--";
 
     const [bucketsRes, daysRes] = await Promise.allSettled([
-      fetchJSON("/api/buckets_ui", { timeoutMs: 10000 }),
+      fetchJSON("/api/buckets_compact", { timeoutMs: 10000 }),
       fetchJSON("/api/days", { timeoutMs: 5000 })
     ]);
 
