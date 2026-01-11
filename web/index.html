@@ -6,9 +6,58 @@
   <title>Weather Station</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='40' r='18' fill='%23FFB000'/><circle cx='50' cy='40' r='12' fill='%23FFC933'/><path d='M50 10v8M50 62v8M78 40h8M14 40h8M71 19l6-6M23 61l6-6M71 61l6 6M23 19l6 6' stroke='%23FFB000' stroke-width='3' stroke-linecap='round'/><ellipse cx='30' cy='64' rx='16' ry='10' fill='%23E0E0E0'/><ellipse cx='50' cy='60' rx='22' ry='14' fill='%23F0F0F0'/><ellipse cx='70' cy='64' rx='16' ry='10' fill='%23E8E8E8'/></svg>"/>
   <style>
+:root {
+  --bg-color: #fff;
+  --text-color: #000;
+  --card-border: #ddd;
+  --card-bg: #fff;
+  --muted-color: #666;
+  --svg-bg: #efefef;
+  --border-light: #eee;
+  --pill-bg: #f2f2f2;
+  --code-bg: #f6f6f6;
+  --button-bg: #fff;
+  --button-border: #ddd;
+  --axis-text: #555;
+  --axis-line: #ccc;
+  --gradient-edge: #fff;
+  --sticky-bg: #fff;
+  --divider-bg: #eee;
+  --table-border-strong: #000;
+  --wind-line-color: #000;
+  --table-cell-bg: #eee;
+  --midnight-line: #bbb;
+}
+
+body.dark-mode {
+  --bg-color: #1a1a1a;
+  --text-color: #e0e0e0;
+  --card-border: #404040;
+  --card-bg: #2a2a2a;
+  --muted-color: #999;
+  --svg-bg: #333;
+  --border-light: #333;
+  --pill-bg: #3a3a3a;
+  --code-bg: #333;
+  --button-bg: #2a2a2a;
+  --button-border: #404040;
+  --axis-text: #999;
+  --axis-line: #444;
+  --gradient-edge: #2a2a2a;
+  --sticky-bg: #2a2a2a;
+  --divider-bg: #404040;
+  --table-border-strong: #666;
+  --wind-line-color: #ccc;
+  --table-cell-bg: #353535;
+  --midnight-line: #666;
+}
+
 body {
   font-family: system-ui, sans-serif;
   margin: 16px;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s, color 0.3s;
 }
 
 .row,.files,.btnrow,.flex-between {
@@ -19,27 +68,28 @@ body {
 .flex-between { justify-content:space-between; align-items:center; }
 
 .card {
-  border:1px solid #ddd;
+  border:1px solid var(--card-border);
   border-radius:12px;
   padding:12px;
   min-width:260px;
+  background-color: var(--card-bg);
 }
 .card-full { flex:1; min-width:320px; }
 
 .big { font-size:42px; font-weight:700; }
 .small { font-size:12px; }
-.muted { color:#666; }
+.muted { color:var(--muted-color); }
 
 svg {
   width:100%;
   height:140px;
   border-radius:10px;
-  background:#fafafa;
+  background:var(--svg-bg);
 }
 
 table { width:100%; border-collapse:collapse; }
 td,th {
-  border-bottom:1px solid #eee;
+  border-bottom:1px solid var(--border-light);
   padding:6px 4px;
   font-size:14px;
   text-align:left;
@@ -57,7 +107,7 @@ td,th {
   position:absolute;
   inset:0 0 0 auto;
   width:40px;
-  background:linear-gradient(to right,transparent,#fff);
+  background:linear-gradient(to right,transparent,var(--gradient-edge));
   pointer-events:none;
   z-index:4;
 }
@@ -66,7 +116,7 @@ td,th {
 .table-scroll thead tr:first-child > th:first-child {
   position:sticky;
   left:0;
-  background:#fff;
+  background:var(--sticky-bg);
   z-index:2;
 }
 .table-scroll thead tr:first-child > th:first-child { z-index:3; }
@@ -77,7 +127,7 @@ thead tr:first-child th:first-child::after {
   position:absolute;
   inset:0 0 0 auto;
   width:2px;
-  background:#000;
+  background:var(--table-border-strong);
 }
 
 .pill {
@@ -85,7 +135,7 @@ thead tr:first-child th:first-child::after {
   padding:2px 8px;
   margin:6px 6px 0 0;
   border-radius:999px;
-  background:#f2f2f2;
+  background:var(--pill-bg);
 }
 
 a { color:inherit; }
@@ -93,9 +143,10 @@ a { color:inherit; }
 .filecol { flex:1; min-width:320px; }
 
 button,input {
-  border:1px solid #ddd;
+  border:1px solid var(--button-border);
   border-radius:10px;
-  background:#fff;
+  background:var(--button-bg);
+  color:var(--text-color);
 }
 button {
   padding:8px 10px;
@@ -113,17 +164,17 @@ button:disabled {
 input { padding:7px 10px; width:80px; }
 
 code {
-  background:#f6f6f6;
+  background:var(--code-bg);
   padding:2px 6px;
   border-radius:8px;
 }
 
 :is(.xaxis,.yaxis) text {
   font-size:10px;
-  fill:#555;
+  fill:var(--axis-text);
 }
 :is(.xaxis,.yaxis) line {
-  stroke:#ccc;
+  stroke:var(--axis-line);
 }
 
 .tooltip {
@@ -157,7 +208,7 @@ code {
 
 .divider {
   width:1px;
-  background:#eee;
+  background:var(--divider-bg);
   align-self:stretch;
 }
 
@@ -169,12 +220,32 @@ code {
 
 .sensor-item { flex:1; min-width:120px; }
 
+.table-alt-bg {
+  background-color: var(--table-cell-bg);
+}
+
+#theme-toggle {
+  padding:8px 12px;
+  font-size:16px;
+  cursor:pointer;
+  border-radius:10px;
+  border:1px solid var(--button-border);
+  background:var(--button-bg);
+  transition: transform 0.2s;
+}
+#theme-toggle:hover {
+  transform: scale(1.05);
+}
+
   </style>
 </head>
 <body>
   <div class="flex-between" style="align-items:flex-start; gap:12px;">
     <h2>Weather Station</h2>
-    <div class="muted small">Time: <span id="tlocal">--</span></div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="muted small">Time: <span id="tlocal">--</span></div>
+      <button id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">☾</button>
+    </div>
   </div>
 
   <div class="row">
@@ -281,6 +352,41 @@ code {
       </div>
     </div>
   </div>
+
+<script>
+// Dark mode functionality
+function toggleTheme() {
+  const body = document.body;
+  const themeToggle = document.getElementById('theme-toggle');
+
+  if (body.classList.contains('dark-mode')) {
+    body.classList.remove('dark-mode');
+    themeToggle.textContent = '☾';
+    themeToggle.title = 'Switch to dark mode';
+    localStorage.setItem('theme', 'light');
+  } else {
+    body.classList.add('dark-mode');
+    themeToggle.textContent = '☼';
+    themeToggle.title = 'Switch to light mode';
+    localStorage.setItem('theme', 'dark');
+  }
+}
+
+// Load saved theme on page load
+(function() {
+  const savedTheme = localStorage.getItem('theme');
+  const themeToggle = document.getElementById('theme-toggle');
+
+  if (savedTheme === 'dark') {
+    document.body.classList.add('dark-mode');
+    themeToggle.textContent = '☼';
+    themeToggle.title = 'Switch to light mode';
+  } else {
+    themeToggle.textContent = '☾';
+    themeToggle.title = 'Switch to dark mode';
+  }
+})();
+</script>
 
 <script src="/root.js"></script>
 
