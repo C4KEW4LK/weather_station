@@ -445,6 +445,13 @@ function colorDot(color) {
   return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};border:1px solid #fff;margin-right:4px;vertical-align:middle;"></span>`;
 }
 
+// Safe DOM version of colorDot for tooltips
+function createColorDot(color) {
+  const span = document.createElement('span');
+  span.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};border:1px solid #fff;margin-right:4px;vertical-align:middle;`;
+  return span;
+}
+
 function hoverPlot(key, evt){
   const state = plotState[key];
   if (!state || !state.series || !state.series.length) return hideTooltip();
@@ -481,28 +488,52 @@ function hoverPlot(key, evt){
   const date = new Date(best.e * 1000);
   const hh = date.getHours().toString().padStart(2, "0");
   const mm = date.getMinutes().toString().padStart(2, "0");
-  let txt = '';
-  txt = `@ ${hh}:${mm}`;
+
+  // Build tooltip safely using DOM methods
+  tooltipEl.textContent = ''; // Clear previous content
+
+  // Add timestamp
+  const timeText = document.createTextNode(`@ ${hh}:${mm}`);
+  tooltipEl.appendChild(timeText);
+
   if (key === "pm") {
     // Show all three PM values with colored dots
     const pm25 = best.item.avgPM25;
     const pm10 = best.item.avgPM10;
     const pm1 = best.item.avgPM1;
-    txt += `<br>${colorDot('#ff6600')}PM2.5: ${isFinite(pm25) ? pm25.toFixed(1) : '--'} ${state.unit}`;
-    txt += `<br>${colorDot('#996633')}PM10: ${isFinite(pm10) ? pm10.toFixed(1) : '--'} ${state.unit}`;
-    txt += `<br>${colorDot('#9966cc')}PM1.0: ${isFinite(pm1) ? pm1.toFixed(1) : '--'} ${state.unit}`;
+
+    tooltipEl.appendChild(document.createElement('br'));
+    const pm25Dot = createColorDot('#ff6600');
+    tooltipEl.appendChild(pm25Dot);
+    tooltipEl.appendChild(document.createTextNode(`PM2.5: ${isFinite(pm25) ? pm25.toFixed(1) : '--'} ${state.unit}`));
+
+    tooltipEl.appendChild(document.createElement('br'));
+    const pm10Dot = createColorDot('#996633');
+    tooltipEl.appendChild(pm10Dot);
+    tooltipEl.appendChild(document.createTextNode(`PM10: ${isFinite(pm10) ? pm10.toFixed(1) : '--'} ${state.unit}`));
+
+    tooltipEl.appendChild(document.createElement('br'));
+    const pm1Dot = createColorDot('#9966cc');
+    tooltipEl.appendChild(pm1Dot);
+    tooltipEl.appendChild(document.createTextNode(`PM1.0: ${isFinite(pm1) ? pm1.toFixed(1) : '--'} ${state.unit}`));
   } else if (key === "wind") {
     // Show wind with colored dots - convert m/s to km/h and show gust first
     const windKmh = toKmh(best.vAvg);
     const gustKmh = toKmh(best.vMax);
     if (gustKmh !== null && gustKmh !== undefined && isFinite(gustKmh)) {
-      txt += `<br>${colorDot('#f0ad4e')}Gust: ${gustKmh.toFixed(1)} ${state.unit}`;
+      tooltipEl.appendChild(document.createElement('br'));
+      const gustDot = createColorDot('#f0ad4e');
+      tooltipEl.appendChild(gustDot);
+      tooltipEl.appendChild(document.createTextNode(`Gust: ${gustKmh.toFixed(1)} ${state.unit}`));
     }
-    txt += `<br>${colorDot('black')}Wind: ${windKmh.toFixed(1)} ${state.unit}`;
+    tooltipEl.appendChild(document.createElement('br'));
+    const windDot = createColorDot('black');
+    tooltipEl.appendChild(windDot);
+    tooltipEl.appendChild(document.createTextNode(`Wind: ${windKmh.toFixed(1)} ${state.unit}`));
   } else {
-    txt += `<br>${state.label}: ${best.vAvg.toFixed(1)} ${state.unit}`;
+    tooltipEl.appendChild(document.createElement('br'));
+    tooltipEl.appendChild(document.createTextNode(`${state.label}: ${best.vAvg.toFixed(1)} ${state.unit}`));
   }
-  tooltipEl.innerHTML = txt;
   tooltipEl.style.display = "block";
 
   const cursorFraction = (evt.clientX - rect.left) / rect.width;
@@ -1243,16 +1274,45 @@ async function loadFiles(dir){
     const offset = filesState[dir].offset;
     const pageFiles = files.slice(offset, offset + FILES_PER_PAGE);
 
-    let html = "<ul style='margin:8px 0; padding-left:18px'>";
+    // Create list safely using DOM APIs instead of innerHTML
+    const ul = document.createElement('ul');
+    ul.style.cssText = 'margin:8px 0; padding-left:18px';
+
     for (const f of pageFiles){
       const p = f.path;
       const filename = p.substring(p.lastIndexOf('/') + 1);
       const s = bytesPretty(f.size);
       const dl = `/download?filename=${encodeURIComponent(filename)}`;
-      html += `<li><a href="${dl}">${p}</a> <span class="muted">(${s})</span> <button class="small" style="padding:4px 6px; border-radius:6px;" onclick="deleteFile('${filename}','${dir}')">Delete</button></li>`;
+
+      const li = document.createElement('li');
+
+      // Create download link
+      const link = document.createElement('a');
+      link.href = dl;
+      link.textContent = p; // Use textContent to prevent XSS
+      li.appendChild(link);
+
+      // Add file size
+      const sizeSpan = document.createElement('span');
+      sizeSpan.className = 'muted';
+      sizeSpan.textContent = ` (${s})`;
+      li.appendChild(sizeSpan);
+
+      // Add delete button
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'small';
+      deleteBtn.style.cssText = 'padding:4px 6px; border-radius:6px;';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.onclick = function() { deleteFile(filename, dir); };
+      li.appendChild(document.createTextNode(' '));
+      li.appendChild(deleteBtn);
+
+      ul.appendChild(li);
     }
-    html += "</ul>";
-    target.innerHTML = html;
+
+    // Clear target and append new list
+    target.textContent = '';
+    target.appendChild(ul);
 
     const totalPages = Math.ceil(files.length / FILES_PER_PAGE);
     const currentPage = Math.floor(offset / FILES_PER_PAGE) + 1;

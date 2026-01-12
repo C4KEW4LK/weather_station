@@ -1974,10 +1974,51 @@ void handleUploadComplete() {
     return;
   }
 
+  // Check for path traversal attempts
+  if (path.indexOf("..") >= 0) {
+    if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"path_traversal_detected\"}");
+    return;
+  }
+
+  // Check for backslashes (Windows-style paths)
+  if (path.indexOf('\\') >= 0) {
+    if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"invalid_path_separator\"}");
+    return;
+  }
+
+  // Ensure path starts with /web/
   if (!path.startsWith("/web/")) {
     if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
     server.send(403, "application/json", "{\"ok\":false,\"error\":\"forbidden_path\"}");
     return;
+  }
+
+  // Validate that path doesn't have double slashes or other suspicious patterns
+  if (path.indexOf("//") >= 0) {
+    if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"invalid_path_format\"}");
+    return;
+  }
+
+  // Extract filename from path and validate it
+  int lastSlash = path.lastIndexOf('/');
+  if (lastSlash < 0 || lastSlash == path.length() - 1) {
+    if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"invalid_filename\"}");
+    return;
+  }
+
+  String filename = path.substring(lastSlash + 1);
+  // Validate filename has allowed characters (alphanumeric, dash, underscore, dot)
+  for (unsigned int i = 0; i < filename.length(); i++) {
+    char c = filename.charAt(i);
+    if (!isalnum(c) && c != '-' && c != '_' && c != '.') {
+      if (SD.exists(TEMP_UPLOAD_FILE)) SD.remove(TEMP_UPLOAD_FILE);
+      server.send(403, "application/json", "{\"ok\":false,\"error\":\"invalid_filename_characters\"}");
+      return;
+    }
   }
 
   // Verify password
