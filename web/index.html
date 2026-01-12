@@ -354,6 +354,24 @@ code {
   </div>
 
 <script>
+// Cookie helper functions
+function setCookie(name, value, days) {
+  const d = new Date();
+  d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+  document.cookie = name + "=" + value + ";expires=" + d.toUTCString() + ";path=/";
+}
+
+function getCookie(name) {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') c = c.substring(1);
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length);
+  }
+  return null;
+}
+
 // Dark mode functionality
 function toggleTheme() {
   const body = document.body;
@@ -363,18 +381,18 @@ function toggleTheme() {
     body.classList.remove('dark-mode');
     themeToggle.textContent = '☾';
     themeToggle.title = 'Switch to dark mode';
-    localStorage.setItem('theme', 'light');
+    setCookie('theme', 'light', 365);
   } else {
     body.classList.add('dark-mode');
     themeToggle.textContent = '☼';
     themeToggle.title = 'Switch to light mode';
-    localStorage.setItem('theme', 'dark');
+    setCookie('theme', 'dark', 365);
   }
 }
 
 // Load saved theme on page load
 (function() {
-  const savedTheme = localStorage.getItem('theme');
+  const savedTheme = getCookie('theme');
   const themeToggle = document.getElementById('theme-toggle');
 
   if (savedTheme === 'dark') {

@@ -1300,8 +1300,7 @@ async function loadFiles(dir){
 
       // Add delete button
       const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'small';
-      deleteBtn.style.cssText = 'padding:4px 6px; border-radius:6px;';
+      deleteBtn.className = 'small file-delete-btn';
       deleteBtn.textContent = 'Delete';
       deleteBtn.onclick = function() { deleteFile(filename, dir); };
       li.appendChild(document.createTextNode(' '));

@@ -3,7 +3,10 @@
 // ==================== HARDWARE CONFIGURATION ====================
 
 // Security
+// UI and API password
 static const char* API_PASSWORD = "ChangeMe";
+//Over the air update password
+static const char* OTA_PASSWORD = "PleaseChangeMe";
 
 // Wind Sensor (Pulse-based Anemometer)
 namespace WindConfig {
