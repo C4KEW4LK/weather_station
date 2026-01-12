@@ -240,12 +240,12 @@ code {
   </style>
 </head>
 <body>
-  <div class="flex-between" style="align-items:flex-start; gap:12px;">
-    <h2>Weather Station</h2>
-    <div style="display:flex; align-items:center; gap:12px;">
-      <div class="muted small">Time: <span id="tlocal">--</span></div>
-      <button id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">☾</button>
+  <div class="flex-between" style="align-items:flex-start; gap:12px; flex-wrap:nowrap; margin-bottom:12px;">
+    <div style="flex:1;">
+      <h2>Weather Station</h2>
+      <div class="muted small">Local time: <span id="tlocal">--</span></div>
     </div>
+    <button id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" style="flex-shrink:0;">☾</button>
   </div>
 
   <div class="row">
