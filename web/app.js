@@ -1575,11 +1575,27 @@ function updateCurrentReadings(now) {
   }
 
   // Helper function to set AQI pill color and text
+  // NOTE: Thresholds must match AQI_STANDARD in config.h
+  // Current configuration: Australian AQI (AQI_STANDARD = 1)
+  // For EPA (AQI_STANDARD = 0), change thresholds to: <=50 (green), <=100 (yellow), >100 (red)
   function setAQIPill(pillId, aqiId, catId, aqiValue, category) {
     document.getElementById(aqiId).textContent = aqiValue;
     document.getElementById(catId).textContent = category;
 
     const pill = document.getElementById(pillId);
+    // Australian AQI thresholds
+    if (aqiValue <= 66) {
+      pill.style.background = "#5cb85c"; // Very Good/Good - green
+      pill.style.color = "#fff";
+    } else if (aqiValue <= 99) {
+      pill.style.background = "#f0ad4e"; // Fair - yellow
+      pill.style.color = "#000";
+    } else {
+      pill.style.background = "#d9534f"; // Poor+ - red
+      pill.style.color = "#fff";
+    }
+
+    /* EPA AQI thresholds (use these if AQI_STANDARD = 0 in config.h)
     if (aqiValue <= 50) {
       pill.style.background = "#5cb85c"; // Good - green
       pill.style.color = "#fff";
@@ -1590,6 +1606,7 @@ function updateCurrentReadings(now) {
       pill.style.background = "#d9534f"; // Unhealthy+ - red
       pill.style.color = "#fff";
     }
+    */
   }
 
   // Update PM2.5 AQI pill

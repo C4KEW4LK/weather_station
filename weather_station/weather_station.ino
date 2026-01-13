@@ -1435,6 +1435,8 @@ void handleApiReboot() {
 }
 
 // ------------------- AQI CALCULATION -------------------
+#if AQI_STANDARD == 0
+// EPA (US) AQI Standard
 // Calculate EPA AQI for PM2.5 (24-hour average, but we use current reading)
 int calculateAQI_PM25(float pm25) {
   if (!isfinite(pm25) || pm25 < 0) return -1;
@@ -1463,7 +1465,7 @@ int calculateAQI_PM10(float pm10) {
   else return 500;
 }
 
-// Get AQI category string
+// Get EPA AQI category string
 const char* getAQICategory(int aqi) {
   if (aqi < 0) return "N/A";
   else if (aqi <= 50) return "Good";
@@ -1473,6 +1475,50 @@ const char* getAQICategory(int aqi) {
   else if (aqi <= 300) return "Very Unhealthy";
   else return "Hazardous";
 }
+
+#elif AQI_STANDARD == 1
+// Australian AQI Standard
+// Calculate Australian AQI for PM2.5 (24-hour average, but we use current reading)
+int calculateAQI_PM25(float pm25) {
+  if (!isfinite(pm25) || pm25 < 0) return -1;
+
+  // Australian AQI breakpoints for PM2.5 (μg/m³)
+  // Scale: 0-200+ with categories: Very Good, Good, Fair, Poor, Very Poor, Hazardous
+  if (pm25 <= 25.0) return map((int)(pm25 * 10), 0, 250, 0, 33);
+  else if (pm25 <= 50.0) return map((int)(pm25 * 10), 251, 500, 34, 66);
+  else if (pm25 <= 100.0) return map((int)(pm25 * 10), 501, 1000, 67, 99);
+  else if (pm25 <= 150.0) return map((int)(pm25 * 10), 1001, 1500, 100, 149);
+  else if (pm25 <= 200.0) return map((int)(pm25 * 10), 1501, 2000, 150, 200);
+  else return 200; // Hazardous
+}
+
+// Calculate Australian AQI for PM10 (24-hour average, but we use current reading)
+int calculateAQI_PM10(float pm10) {
+  if (!isfinite(pm10) || pm10 < 0) return -1;
+
+  // Australian AQI breakpoints for PM10 (μg/m³)
+  if (pm10 <= 50.0) return map((int)(pm10 * 10), 0, 500, 0, 33);
+  else if (pm10 <= 100.0) return map((int)(pm10 * 10), 501, 1000, 34, 66);
+  else if (pm10 <= 200.0) return map((int)(pm10 * 10), 1001, 2000, 67, 99);
+  else if (pm10 <= 300.0) return map((int)(pm10 * 10), 2001, 3000, 100, 149);
+  else if (pm10 <= 400.0) return map((int)(pm10 * 10), 3001, 4000, 150, 200);
+  else return 200; // Hazardous
+}
+
+// Get Australian AQI category string
+const char* getAQICategory(int aqi) {
+  if (aqi < 0) return "N/A";
+  else if (aqi <= 33) return "Very Good";
+  else if (aqi <= 66) return "Good";
+  else if (aqi <= 99) return "Fair";
+  else if (aqi <= 149) return "Poor";
+  else if (aqi <= 200) return "Very Poor";
+  else return "Hazardous";
+}
+
+#else
+#error "Invalid AQI_STANDARD. Must be 0 (EPA) or 1 (Australian)"
+#endif
 
 void handleApiNow() {
   float pps = (WindConfig::PPS_TO_MS > 0.0f) ? (gNowWindMS / WindConfig::PPS_TO_MS) : 0.0f;

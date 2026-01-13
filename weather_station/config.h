@@ -33,6 +33,25 @@ namespace PMS5003Config {
   static constexpr uint32_t POLL_INTERVAL_MS = 2000;  // Poll every 2 seconds
 }
 
+// AQI (Air Quality Index) Calculation Standard
+// Choose which AQI standard to use:
+//   0 = EPA (United States Environmental Protection Agency)
+//       - Scale: 0-500
+//       - Categories: Good (0-50), Moderate (51-100), Unhealthy for Sensitive (101-150),
+//                     Unhealthy (151-200), Very Unhealthy (201-300), Hazardous (301+)
+//       - PM2.5 breakpoints: 0-12, 12.1-35.4, 35.5-55.4, 55.5-150.4, 150.5-250.4, 250.5+
+//       - PM10 breakpoints: 0-54, 55-154, 155-254, 255-354, 355-424, 425+
+//
+//   1 = Australian AQI
+//       - Scale: 0-200+
+//       - Categories: Very Good (0-33), Good (34-66), Fair (67-99),
+//                     Poor (100-149), Very Poor (150-200), Hazardous (200+)
+//       - PM2.5 breakpoints: 0-25, 26-50, 51-100, 101-150, 151-200, 200+
+//       - PM10 breakpoints: 0-50, 51-100, 101-200, 201-300, 301-400, 400+
+//
+// IMPORTANT: If you change this, also update the color thresholds in web/app.js (setAQIPill function)
+#define AQI_STANDARD 1  // 0=EPA, 1=Australian
+
 // SD Card (SPI)
 namespace SDConfig {
   static constexpr bool ENABLE = true;
