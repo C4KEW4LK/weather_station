@@ -668,10 +668,6 @@ function plotMouseUp(key, evt){
     return;
   }
 
-  if (!state.originalXDomain) {
-    state.originalXDomain = { ...state.xDomain };
-  }
-
   let normStart = (minX - dims.padLeft) / xRange;
   let normEnd = (maxX - dims.padLeft) / xRange;
 
@@ -687,19 +683,12 @@ function plotMouseUp(key, evt){
     max: currentDomain.min + normEnd * span
   };
 
-  PLOT_KEYS.forEach(plotKey => {
-    const plotSt = plotState[plotKey];
-    if (plotSt) {
-      if (!plotSt.originalXDomain && plotSt.xDomain) {
-        plotSt.originalXDomain = { ...plotSt.xDomain };
-      }
-      plotSt.zoomXDomain = { ...newZoomDomain };
-    }
-  });
-
   hideSelectionRect(key);
-  PLOT_KEYS.forEach(reRenderPlot);
-  setResetButtons(true);
+  // Show reset button for manual drag zoom
+  applyZoom(newZoomDomain, true);
+
+  // Clear active button since this is a custom zoom
+  setActiveTimeRangeButton('none');
 }
 
 // Touch event handlers for mobile support
@@ -782,10 +771,6 @@ function plotTouchEnd(key, evt) {
     return;
   }
 
-  if (!state.originalXDomain) {
-    state.originalXDomain = { ...state.xDomain };
-  }
-
   let normStart = (minX - dims.padLeft) / xRange;
   let normEnd = (maxX - dims.padLeft) / xRange;
 
@@ -800,6 +785,47 @@ function plotTouchEnd(key, evt) {
     max: currentDomain.min + normEnd * span
   };
 
+  hideSelectionRect(key);
+  hideTooltip();
+  // Show reset button for manual drag zoom
+  applyZoom(newZoomDomain, true);
+
+  // Clear active button since this is a custom zoom
+  setActiveTimeRangeButton('none');
+}
+
+function setResetButtons(visible){
+  PLOT_KEYS.forEach(plotKey => {
+    const resetBtn = document.getElementById(`reset_${plotKey}`);
+    if (resetBtn) resetBtn.style.display = visible ? "block" : "none";
+  });
+}
+
+function setActiveTimeRangeButton(hours){
+  // Remove active class from all buttons
+  const container = document.getElementById('time-range-buttons');
+  if (!container) return;
+
+  const buttons = container.querySelectorAll('button');
+  buttons.forEach(btn => btn.classList.remove('active'));
+
+  // Add active class to the matching button
+  if (hours === null) {
+    // Max/no zoom - activate the Max button
+    const maxBtn = container.querySelector('button[data-hours="max"]');
+    if (maxBtn) maxBtn.classList.add('active');
+  } else if (hours === 'none') {
+    // Custom zoom - don't highlight any button
+    return;
+  } else {
+    // Find button with matching hours
+    const activeBtn = container.querySelector(`button[data-hours="${hours}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+  }
+}
+
+function applyZoom(newZoomDomain, showResetBtn = true){
+  // Apply zoom domain to all plots
   PLOT_KEYS.forEach(plotKey => {
     const plotSt = plotState[plotKey];
     if (plotSt) {
@@ -810,20 +836,15 @@ function plotTouchEnd(key, evt) {
     }
   });
 
-  hideSelectionRect(key);
-  hideTooltip();
+  // Re-render all plots
   PLOT_KEYS.forEach(reRenderPlot);
-  setResetButtons(true);
+
+  // Show/hide reset buttons based on parameter
+  setResetButtons(showResetBtn);
 }
 
-function setResetButtons(visible){
-  PLOT_KEYS.forEach(plotKey => {
-    const resetBtn = document.getElementById(`reset_${plotKey}`);
-    if (resetBtn) resetBtn.style.display = visible ? "block" : "none";
-  });
-}
-
-function resetZoom(key){
+function resetToMax(){
+  // Fully reset zoom to show all data
   PLOT_KEYS.forEach(plotKey => {
     const state = plotState[plotKey];
     if (state) {
@@ -833,6 +854,60 @@ function resetZoom(key){
   });
   PLOT_KEYS.forEach(reRenderPlot);
   setResetButtons(false);
+
+  // Clear zoom cookie and current zoom level
+  setCookie('zoomHours', '', -1);
+  currentZoomHours = null;
+
+  // Highlight Max button
+  setActiveTimeRangeButton(null);
+}
+
+function resetZoom(key){
+  // If there's a saved time range zoom level, zoom back to it
+  if (currentZoomHours !== null) {
+    zoomToTimeRange(currentZoomHours);
+  } else {
+    // Otherwise, fully reset zoom to show all data (same as Max)
+    resetToMax();
+  }
+}
+
+function zoomToTimeRange(hours){
+  // Get current time in seconds (epoch)
+  const nowEpoch = Math.floor(Date.now() / 1000);
+
+  // Calculate time range: from (now - hours) to now
+  const secondsToGoBack = hours * 3600;
+  const startEpoch = nowEpoch - secondsToGoBack;
+
+  const newZoomDomain = {
+    min: startEpoch,
+    max: nowEpoch
+  };
+
+  // Don't show reset button for time range buttons (preset zoom levels)
+  applyZoom(newZoomDomain, false);
+
+  // Save zoom level to cookie and track current zoom
+  setCookie('zoomHours', String(hours), 365);
+  currentZoomHours = hours;
+
+  // Highlight the selected button
+  setActiveTimeRangeButton(hours);
+}
+
+function loadZoomFromCookie(){
+  const savedZoom = getCookie('zoomHours');
+  if (savedZoom) {
+    const hours = parseFloat(savedZoom);
+    if (isFinite(hours) && hours > 0) {
+      // Apply the saved zoom level (this also sets currentZoomHours and highlights button)
+      zoomToTimeRange(hours);
+      return true;
+    }
+  }
+  return false;
 }
 
 function updateSelectionRect(key){
@@ -1574,6 +1649,7 @@ function updateCurrentReadings(now) {
 let tickCount = 0;
 let isFastTickRunning = false;
 let isSlowTickRunning = false;
+let currentZoomHours = null; // Track active zoom level
 
 async function fastTick() {
   // Prevent overlapping requests
@@ -1646,6 +1722,11 @@ async function slowTick() {
       renderSingleSeries(series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
       renderPM(series);
       debugLog('Plots rendered');
+
+      // Re-apply zoom if active (keeps zoom relative to current time)
+      if (currentZoomHours !== null) {
+        zoomToTimeRange(currentZoomHours);
+      }
     } else {
       debugLog("Buckets failed", {error: bucketsRes.reason?.message});
     }
@@ -1687,6 +1768,14 @@ function combinedTick() {
 
     // Load plots and summaries once on init
     await slowTick();
+
+    // Restore saved zoom level from cookie
+    const hasZoom = loadZoomFromCookie();
+
+    // If no saved zoom, highlight Max button by default
+    if (!hasZoom) {
+      setActiveTimeRangeButton(null);
+    }
 
     // Then update current readings every 2s, plots every 14s (7 ticks)
     setInterval(combinedTick, 2000);
