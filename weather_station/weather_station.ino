@@ -2353,6 +2353,7 @@ void setup() {
   server.begin();
 
   ArduinoOTA.setHostname("anemometer");
+  ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
   });
   ArduinoOTA.onError([](ota_error_t error) {
