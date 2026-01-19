@@ -333,10 +333,12 @@ void logBucketToSD(const BucketSample& b) {
   if (!gSdOk) return;
 
   ensureDir("/data");
+  ensureDir("/backup");
 
   time_t bucketMidnightLocal = localMidnight(b.startEpoch);
   String ymd = ymdString(bucketMidnightLocal);
   String dailyFile = String("/data/") + ymd + ".csv";
+  String backupFile = String("/backup/") + ymd + ".csv";
 
   String header =
     "datetime,epoch,wind_avg_ms,wind_max_ms,temp_c,hum_rh,press_hpa,pm1,pm25,pm10,samples";
@@ -355,6 +357,7 @@ void logBucketToSD(const BucketSample& b) {
     String(b.samples);
 
   appendLine(dailyFile, line, header);
+  appendLine(backupFile, line, header);
 }
 
 static bool deleteDirFiles(const char* dirPath) {
