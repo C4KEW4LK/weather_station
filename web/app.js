@@ -219,10 +219,7 @@ function generatePlots() {
     });
 
     div.innerHTML = `
-      <div class="flex-between">
-        <div class="muted">${plot.title} (${plot.unit})</div>
-        <button class="small reset-btn" onclick="resetZoom('${plot.id}')" id="reset_${plot.id}">Reset Zoom</button>
-      </div>
+      <div class="muted">${plot.title} (${plot.unit})</div>
       <svg viewBox="0 0 600 140" preserveAspectRatio="none"
            onmousemove="plotMouseMove('${plot.id}', event)"
            onmouseleave="plotMouseLeave('${plot.id}')"
@@ -699,7 +696,9 @@ function plotMouseUp(key, evt){
 
   hideSelectionRect(key);
   PLOT_KEYS.forEach(reRenderPlot);
-  setResetButtons(true);
+  // Mark as manual zoom and show reset buttons
+  hasManualZoom = true;
+  setResetButtonVisible(true);
 }
 
 // Touch event handlers for mobile support
@@ -813,26 +812,100 @@ function plotTouchEnd(key, evt) {
   hideSelectionRect(key);
   hideTooltip();
   PLOT_KEYS.forEach(reRenderPlot);
-  setResetButtons(true);
+  // Mark as manual zoom and show reset buttons
+  hasManualZoom = true;
+  setResetButtonVisible(true);
 }
 
-function setResetButtons(visible){
-  PLOT_KEYS.forEach(plotKey => {
-    const resetBtn = document.getElementById(`reset_${plotKey}`);
-    if (resetBtn) resetBtn.style.display = visible ? "block" : "none";
+// Current zoom level in hours (default 24)
+let currentZoomLevel = 24;
+// Track if user has manually zoomed via drag (away from preset)
+let hasManualZoom = false;
+
+// Load zoom level from cookie on init
+function loadZoomLevelFromCookie() {
+  const saved = getCookie('zoomLevel');
+  if (saved) {
+    const parsed = parseInt(saved, 10);
+    if ([1, 3, 6, 12, 24].includes(parsed)) {
+      currentZoomLevel = parsed;
+    }
+  }
+}
+
+function saveZoomLevelToCookie(hours) {
+  setCookie('zoomLevel', hours, 365);
+}
+
+function updateActiveZoomButton(hours) {
+  document.querySelectorAll('.zoom-btn').forEach(btn => {
+    const btnZoom = parseInt(btn.getAttribute('data-zoom'), 10);
+    if (btnZoom === hours) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
   });
+}
+
+function setResetButtonVisible(visible) {
+  const resetBtn = document.getElementById('reset_zoom_btn');
+  if (resetBtn) resetBtn.style.visibility = visible ? "visible" : "hidden";
 }
 
 function resetZoom(key){
+  // Reset to the current saved zoom level
+  hasManualZoom = false;
+  setResetButtonVisible(false);
+  setZoomLevel(currentZoomLevel, false);
+}
+
+function setZoomLevel(hours, saveToStorage = true){
+  // Save the selected zoom level
+  if (saveToStorage) {
+    currentZoomLevel = hours;
+    saveZoomLevelToCookie(hours);
+    // Clicking a preset clears manual zoom
+    hasManualZoom = false;
+    setResetButtonVisible(false);
+    updateActiveZoomButton(hours);
+  }
+
+  // Get current time from any plot's data, or use system time
+  let nowEpoch = Math.floor(Date.now() / 1000);
+
+  // Try to get the latest data point time from the series
+  for (const plotKey of PLOT_KEYS) {
+    const state = plotState[plotKey];
+    if (state && state.xDomain && state.xDomain.max) {
+      nowEpoch = Math.max(nowEpoch, state.xDomain.max);
+    }
+  }
+
+  const secondsBack = hours * 3600;
+  const minEpoch = nowEpoch - secondsBack;
+
+  // Apply zoom to all plots
   PLOT_KEYS.forEach(plotKey => {
     const state = plotState[plotKey];
-    if (state) {
-      state.zoomXDomain = null;
-      state.originalXDomain = null;
+    if (state && state.xDomain) {
+      if (!state.originalXDomain) {
+        state.originalXDomain = { ...state.xDomain };
+      }
+      // Clamp to available data range
+      const clampedMin = Math.max(minEpoch, state.xDomain.min);
+      const clampedMax = Math.min(nowEpoch, state.xDomain.max);
+
+      // Only set zoom if it's actually narrower than full range
+      if (clampedMax - clampedMin < state.xDomain.max - state.xDomain.min) {
+        state.zoomXDomain = { min: clampedMin, max: clampedMax };
+      } else {
+        state.zoomXDomain = null;
+      }
     }
   });
+
   PLOT_KEYS.forEach(reRenderPlot);
-  setResetButtons(false);
 }
 
 function updateSelectionRect(key){
@@ -1682,11 +1755,20 @@ function combinedTick() {
     debugLog('User Agent', {ua: navigator.userAgent.substring(0, 100)});
     debugLog('URL', {url: window.location.href});
 
+    // Load saved zoom level from cookie
+    loadZoomLevelFromCookie();
+    updateActiveZoomButton(currentZoomLevel);
+    debugLog('Loaded zoom level', {hours: currentZoomLevel});
+
     await loadConfig();
     debugLog('Starting tick');
 
     // Load plots and summaries once on init
     await slowTick();
+
+    // Apply saved zoom level after data is loaded
+    setZoomLevel(currentZoomLevel, false);
+    debugLog('Applied zoom level', {hours: currentZoomLevel});
 
     // Then update current readings every 2s, plots every 14s (7 ticks)
     setInterval(combinedTick, 2000);
