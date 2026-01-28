@@ -4,6 +4,10 @@ let PLOT_KEYS = [];
 let FILES_PER_PAGE = 30;
 let MAX_PLOT_POINTS = 500;
 
+// uPlot instances and state
+const uPlotInstances = {};
+const plotState = {};
+
 function debugLog(msg, data = null) {
   console.log(msg, data || '');
 }
@@ -159,7 +163,7 @@ async function loadConfig() {
   debugLog('UI generation complete');
 }
 
-// Generate plot SVG elements dynamically
+// Generate plot containers dynamically
 function generatePlots() {
   const container = document.getElementById('plots_container');
   if (!container) return;
@@ -169,86 +173,16 @@ function generatePlots() {
   for (const plot of CONFIG.plots) {
     const div = document.createElement('div');
 
-    // Build series elements
-    let seriesHTML = '';
-    plot.series.forEach((s, idx) => {
-      // Generate correct line IDs
-      let lineId;
-      if (plot.series.length > 1) {
-        // For multi-series plots
-        if (idx === 0) {
-          lineId = `line_${plot.id}`;
-        } else if (s.field.includes('max') || s.field.includes('Max')) {
-          lineId = `line_${plot.id}_max`;
-        } else if (s.field.includes('PM10')) {
-          lineId = `line_${plot.id}_pm10`;
-        } else if (s.field.includes('PM1')) {
-          lineId = `line_${plot.id}_pm1`;
-        } else {
-          lineId = `line_${plot.id}_${idx}`;
-        }
-      } else {
-        lineId = `line_${plot.id}`;
-      }
-
-      // Generate correct dot IDs
-      let dotId;
-      if (plot.series.length > 1) {
-        if (s.field.includes('max') || s.field.includes('Max')) {
-          dotId = `hover_dot_${plot.id}_max`;
-        } else if (s.field.includes('PM10')) {
-          dotId = `hover_dot_${plot.id}_pm10`;
-        } else if (s.field.includes('PM1') && !s.field.includes('PM10')) {
-          dotId = `hover_dot_${plot.id}_pm1`;
-        } else if (idx === 0) {
-          dotId = `hover_dot_${plot.id}_avg`;
-        } else {
-          dotId = `hover_dot_${plot.id}_${idx}`;
-        }
-      } else {
-        dotId = `hover_dot_${plot.id}`;
-      }
-
-      seriesHTML += `
-        <polyline id="${lineId}"
-                  fill="none" stroke="${s.color}" stroke-width="2" points=""
-                  clip-path="url(#plotClip_${plot.id})"></polyline>
-        <circle id="${dotId}"
-                cx="0" cy="0" r="4" fill="${s.color}" stroke="#fff" stroke-width="1" opacity="0"></circle>
-      `;
-    });
-
     div.innerHTML = `
       <div class="muted">${plot.title} (${plot.unit})</div>
-      <svg viewBox="0 0 600 140" preserveAspectRatio="none"
-           onmousemove="plotMouseMove('${plot.id}', event)"
-           onmouseleave="plotMouseLeave('${plot.id}')"
-           onmousedown="plotMouseDown('${plot.id}', event)"
-           onmouseup="plotMouseUp('${plot.id}', event)"
-           ondblclick="resetZoom('${plot.id}')"
-           ontouchstart="plotTouchStart('${plot.id}', event)"
-           ontouchmove="plotTouchMove('${plot.id}', event)"
-           ontouchend="plotTouchEnd('${plot.id}', event)"
-           style="cursor:crosshair;">
-        <defs>
-          <clipPath id="plotClip_${plot.id}">
-            <rect x="60" y="8" width="530" height="106"/>
-          </clipPath>
-        </defs>
-        <g class="yaxis" id="axis_${plot.id}"></g>
-        <g class="xaxis" id="axis_x_${plot.id}"></g>
-        <g class="midnight-lines" id="midnight_${plot.id}"></g>
-        <line id="hover_line_${plot.id}" x1="0" y1="0" x2="0" y2="0" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3" opacity="0"></line>
-        ${seriesHTML}
-        <rect id="select_rect_${plot.id}" x="0" y="0" width="0" height="0" fill="rgba(100,150,250,0.2)" stroke="rgba(100,150,250,0.6)" stroke-width="1" opacity="0"></rect>
-      </svg>
+      <div id="plot_${plot.id}" class="uplot-container"></div>
     `;
 
     container.appendChild(div);
 
     // Initialize plot state
     plotState[plot.id] = {
-      series: null,
+      data: null,
       xDomain: null,
       zoomXDomain: null,
       label: plot.title,
@@ -315,120 +249,70 @@ function generateTableHeaders() {
   thead.innerHTML = row1 + row2 + row3;
 }
 
-const chartDims = { width: 600, height: 140, padLeft: 60, padRight: 10, padTop: 8, padBottom: 26 };
-const plotState = {
-  wind: { series: null, xDomain: null, zoomXDomain: null, label: "Wind", unit: "km/h" },
-  temp: { series: null, xDomain: null, zoomXDomain: null, label: "Temp", unit: "°C" },
-  hum:  { series: null, xDomain: null, zoomXDomain: null, label: "Humidity", unit: "%" },
-  press:{ series: null, xDomain: null, zoomXDomain: null, label: "Pressure (MSLP)", unit: "hPa" },
-  pm:   { series: null, xDomain: null, zoomXDomain: null, label: "PM", unit: "μg/m³" }
-};
-
-const dragState = {
-  active: false,
-  plotKey: null,
-  startX: 0,
-  currentX: 0,
-  lastClickTime: 0
-};
-
-const tooltipEl = (() => {
-  const el = document.createElement("div");
-  el.className = "tooltip";
-  el.style.display = "none";
-  document.body.appendChild(el);
-  return el;
-})();
-
-function clearAxis(axisId){
-  if (!axisId) return;
-  const ax = document.getElementById(axisId);
-  if (ax) ax.innerHTML = "";
+// Get CSS variable value
+function getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function setHoverLine(key, xPx){
-  const line = document.getElementById(`hover_line_${key}`);
-  if (!line) return;
-  if (xPx === null || !isFinite(xPx)) {
-    line.style.opacity = "0";
-    return;
+// Check if dark mode is active
+function isDarkMode() {
+  return document.body.classList.contains('dark-mode');
+}
+
+// Get axis/grid colors based on theme
+function getThemeColors() {
+  const dark = isDarkMode();
+  return {
+    axes: dark ? '#999' : '#555',
+    grid: dark ? '#444' : '#ddd',
+    background: dark ? '#333' : '#efefef',
+    midnight: dark ? '#666' : '#bbb',
+    windLine: dark ? '#ccc' : '#000'
+  };
+}
+
+// Resolve CSS variable for colors
+function resolveColor(color) {
+  if (color.startsWith('var(')) {
+    const varName = color.slice(4, -1);
+    return getCSSVar(varName) || color;
   }
-  line.setAttribute("x1", xPx.toFixed(1));
-  line.setAttribute("x2", xPx.toFixed(1));
-  line.setAttribute("y1", chartDims.padTop);
-  line.setAttribute("y2", chartDims.height - chartDims.padBottom);
-  line.style.opacity = "1";
+  return color;
 }
 
-function clearHoverLines(){
-  PLOT_KEYS.forEach(k => setHoverLine(k, null));
+// Format timestamp for tooltip
+function formatTime(epoch) {
+  const d = new Date(epoch * 1000);
+  const hh = d.getHours().toString().padStart(2, '0');
+  const mm = d.getMinutes().toString().padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
-function setHoverDot(key, xPx, yPx){
-  const dot = document.getElementById(`hover_dot_${key}`);
-  if (!dot) return;
-  if (xPx === null || yPx === null || !isFinite(xPx) || !isFinite(yPx)) {
-    dot.style.opacity = "0";
-    return;
-  }
-  dot.setAttribute("cx", xPx.toFixed(1));
-  dot.setAttribute("cy", yPx.toFixed(1));
-  dot.style.opacity = "1";
+// Format timestamp for x-axis
+function formatAxisTime(self, splits) {
+  return splits.map(v => {
+    if (v == null) return '';
+    const d = new Date(v * 1000);
+    const hh = d.getHours().toString().padStart(2, '0');
+    const mm = d.getMinutes().toString().padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
 }
 
-function clearHoverDots(){
-  PLOT_KEYS.forEach(k => setHoverDot(k, null, null));
-  setHoverDot("wind_avg", null, null);
-  setHoverDot("wind_max", null, null);
-  setHoverDot("pm_avg", null, null);
-  setHoverDot("pm_pm10", null, null);
-  setHoverDot("pm_pm1", null, null);
-}
-
-function computeDomain(values, fields){
-  let min = Infinity, max = -Infinity;
-  for (const field of fields){
-    for (const v of values){
-      const raw = v ? v[field] : null;
-      const val = (raw === null || raw === undefined || !isFinite(raw)) ? null : Number(raw);
-      if (val === null) continue;
-      if (val < min) min = val;
-      if (val > max) max = val;
-    }
-  }
-  if (!isFinite(min) || !isFinite(max)){
-    min = 0;
-    max = 1;
-  }
-  if (Math.abs(max - min) < 1e-3) max = min + 1.0;
-  return {min, max};
-}
-
-function computeTimeDomain(values){
-  let min = Infinity, max = -Infinity;
-  for (const v of values){
-    const e = v ? Number(v.startEpoch) : NaN;
-    if (!isFinite(e) || e <= 0) continue;
-    if (e < min) min = e;
-    if (e > max) max = e;
-  }
-  if (!isFinite(min) || !isFinite(max)) return null;
-  if (Math.abs(max - min) < 1e-3) max = min + 1.0;
-  return {min, max};
-}
-
-function downsampleData(values, maxPoints = 1000){
+// Downsample data for performance
+function downsampleData(values, maxPoints = 500) {
   if (!values || values.length <= maxPoints) return values;
   const step = values.length / maxPoints;
   const result = [];
-  for (let i = 0; i < maxPoints; i++){
+  for (let i = 0; i < maxPoints; i++) {
     const index = Math.floor(i * step);
     result.push(values[index]);
   }
   return result;
 }
 
-function filterSeries(values, predicate){
+// Filter valid data points
+function filterSeries(values, predicate) {
   if (!values || !values.length) return [];
   return values.filter(v => {
     if (!v) return false;
@@ -438,383 +322,449 @@ function filterSeries(values, predicate){
   });
 }
 
-function colorDot(color) {
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};border:1px solid #fff;margin-right:4px;vertical-align:middle;"></span>`;
+// Convert m/s to km/h
+function toKmh(v) {
+  if (v === null || v === undefined) return null;
+  if (!isFinite(v)) return null;
+  return Number(v) * 3.6;
 }
 
-// Safe DOM version of colorDot for tooltips
-function createColorDot(color) {
-  const span = document.createElement('span');
-  span.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};border:1px solid #fff;margin-right:4px;vertical-align:middle;`;
-  return span;
+// Create midnight lines plugin for uPlot
+function midnightLinesPlugin() {
+  return {
+    hooks: {
+      drawAxes: [
+        (u) => {
+          const ctx = u.ctx;
+          const { left, top, width, height } = u.bbox;
+          const colors = getThemeColors();
+
+          // Get x scale range
+          const xMin = u.scales.x.min;
+          const xMax = u.scales.x.max;
+
+          if (xMin == null || xMax == null) return;
+
+          // Find first midnight after xMin
+          const startDate = new Date(xMin * 1000);
+          const firstMidnight = new Date(startDate);
+          firstMidnight.setHours(0, 0, 0, 0);
+          if (firstMidnight <= startDate) {
+            firstMidnight.setDate(firstMidnight.getDate() + 1);
+          }
+
+          ctx.save();
+          ctx.strokeStyle = colors.midnight;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 2]);
+
+          let currentMidnight = new Date(firstMidnight);
+          while (currentMidnight.getTime() / 1000 <= xMax) {
+            const midnightEpoch = currentMidnight.getTime() / 1000;
+            const x = u.valToPos(midnightEpoch, 'x', true);
+
+            if (x >= left && x <= left + width) {
+              ctx.beginPath();
+              ctx.moveTo(x, top);
+              ctx.lineTo(x, top + height);
+              ctx.stroke();
+            }
+
+            currentMidnight.setDate(currentMidnight.getDate() + 1);
+          }
+
+          ctx.restore();
+        }
+      ]
+    }
+  };
 }
 
-function hoverPlot(key, evt){
-  const state = plotState[key];
-  if (!state || !state.series || !state.series.length) return hideTooltip();
-  const rect = evt.currentTarget.getBoundingClientRect();
-  if (rect.width <= 0) return hideTooltip();
-  const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
-  const dims = chartDims, xRange = dims.width - dims.padLeft - dims.padRight;
-  const xDomain = state.zoomXDomain || state.xDomain;
-  let targetEpoch = null;
-  if (xDomain && xRange > 0){
-    const norm = Math.max(0, Math.min(1, (relX - dims.padLeft) / xRange));
-    targetEpoch = xDomain.min + norm * (xDomain.max - xDomain.min);
+// Global tooltip element (shared across all plots)
+let globalTooltip = null;
+
+function getTooltip() {
+  if (!globalTooltip) {
+    globalTooltip = document.createElement('div');
+    globalTooltip.className = 'tooltip';
+    globalTooltip.style.display = 'none';
+    document.body.appendChild(globalTooltip);
   }
-  let best = null;
-  for (const item of state.series){
-    if (!item) continue;
-    const vAvg = (key === "wind") ? item.avgWind :
-                 (key === "temp") ? item.avgTempC :
-                 (key === "hum") ? item.avgHumRH :
-                 (key === "press") ? item.avgPressHpa :
-                 (key === "pm") ? item.avgPM25 : // Use PM2.5 as primary for PM plots
-                 null;
-    const vMax = (key === "wind") ? item.maxWind : null;
-    if (vAvg === null || vAvg === undefined || !isFinite(vAvg)) continue;
-    const e = item.startEpoch ? Number(item.startEpoch) : NaN;
-    if (targetEpoch !== null && isFinite(e)){
-      const dx = Math.abs(e - targetEpoch);
-      if (!best || dx < best.dx) best = { item, vAvg, vMax, e, dx };
-    } else {
-      if (!best) best = { item, vAvg, vMax, e, dx: 0 };
-    }
+  return globalTooltip;
+}
+
+// Hide tooltip
+function hideGlobalTooltip() {
+  if (globalTooltip) {
+    globalTooltip.style.display = 'none';
   }
-  if (!best) return hideTooltip();
-  const date = new Date(best.e * 1000);
-  const hh = date.getHours().toString().padStart(2, "0");
-  const mm = date.getMinutes().toString().padStart(2, "0");
+}
 
-  // Build tooltip safely using DOM methods
-  tooltipEl.textContent = ''; // Clear previous content
+// Create tooltip plugin for uPlot
+// seriesInfo is an array of {label, color} for each data series
+function tooltipPlugin(unit, seriesInfo) {
+  return {
+    hooks: {
+      setCursor: [
+        (u) => {
+          const tooltip = getTooltip();
+          const { left, top, idx } = u.cursor;
 
-  // Add timestamp
-  const timeText = document.createTextNode(`@ ${hh}:${mm}`);
-  tooltipEl.appendChild(timeText);
+          // Hide if no valid index or cursor is outside plot area
+          if (idx == null || idx < 0 || left < 0 || top < 0) {
+            tooltip.style.display = 'none';
+            return;
+          }
 
-  if (key === "pm") {
-    // Show all three PM values with colored dots
-    const pm25 = best.item.avgPM25;
-    const pm10 = best.item.avgPM10;
-    const pm1 = best.item.avgPM1;
+          const time = u.data[0][idx];
+          if (time == null) {
+            tooltip.style.display = 'none';
+            return;
+          }
 
-    tooltipEl.appendChild(document.createElement('br'));
-    const pm25Dot = createColorDot('#ff6600');
-    tooltipEl.appendChild(pm25Dot);
-    tooltipEl.appendChild(document.createTextNode(`PM2.5: ${isFinite(pm25) ? pm25.toFixed(1) : '--'} ${state.unit}`));
+          // Build tooltip content
+          tooltip.innerHTML = '';
 
-    tooltipEl.appendChild(document.createElement('br'));
-    const pm10Dot = createColorDot('#996633');
-    tooltipEl.appendChild(pm10Dot);
-    tooltipEl.appendChild(document.createTextNode(`PM10: ${isFinite(pm10) ? pm10.toFixed(1) : '--'} ${state.unit}`));
+          // Add timestamp
+          const timeSpan = document.createElement('div');
+          timeSpan.textContent = `@ ${formatTime(time)}`;
+          tooltip.appendChild(timeSpan);
 
-    tooltipEl.appendChild(document.createElement('br'));
-    const pm1Dot = createColorDot('#9966cc');
-    tooltipEl.appendChild(pm1Dot);
-    tooltipEl.appendChild(document.createTextNode(`PM1.0: ${isFinite(pm1) ? pm1.toFixed(1) : '--'} ${state.unit}`));
-  } else if (key === "wind") {
-    // Show wind with colored dots - convert m/s to km/h and show gust first
-    const windKmh = toKmh(best.vAvg);
-    const gustKmh = toKmh(best.vMax);
-    if (gustKmh !== null && gustKmh !== undefined && isFinite(gustKmh)) {
-      tooltipEl.appendChild(document.createElement('br'));
-      const gustDot = createColorDot('#f0ad4e');
-      tooltipEl.appendChild(gustDot);
-      tooltipEl.appendChild(document.createTextNode(`Gust: ${gustKmh.toFixed(1)} ${state.unit}`));
-    }
-    tooltipEl.appendChild(document.createElement('br'));
-    const windDot = createColorDot('black');
-    tooltipEl.appendChild(windDot);
-    tooltipEl.appendChild(document.createTextNode(`Wind: ${windKmh.toFixed(1)} ${state.unit}`));
-  } else {
-    tooltipEl.appendChild(document.createElement('br'));
-    tooltipEl.appendChild(document.createTextNode(`${state.label}: ${best.vAvg.toFixed(1)} ${state.unit}`));
-  }
-  tooltipEl.style.display = "block";
+          // Add series values
+          for (let i = 0; i < seriesInfo.length; i++) {
+            const dataIdx = i + 1; // data[0] is timestamps, data[1+] are series
+            const val = u.data[dataIdx] ? u.data[dataIdx][idx] : null;
+            const info = seriesInfo[i];
+            const series = u.series[dataIdx];
 
-  const cursorFraction = (evt.clientX - rect.left) / rect.width;
-  const tooltipOffsetX = cursorFraction > 0.66 ? -12 : 12;
-  tooltipEl.style.left = cursorFraction > 0.66 ? `${evt.clientX + tooltipOffsetX - tooltipEl.offsetWidth}px` : `${evt.clientX + tooltipOffsetX}px`;
-  tooltipEl.style.top = `${evt.clientY + 12}px`;
-  let xPx = null, yPx = null;
-  if (xDomain && xRange > 0 && isFinite(xDomain.min) && isFinite(xDomain.max) && xDomain.max > xDomain.min) {
-    const normX = (best.e - xDomain.min) / (xDomain.max - xDomain.min);
-    const clamped = Math.max(0, Math.min(1, normX));
-    xPx = dims.padLeft + clamped * xRange;
-    const visibleSeries = state.zoomXDomain ? state.series.filter(v => {
-      const e = v ? Number(v.startEpoch) : NaN;
-      return isFinite(e) && e >= state.zoomXDomain.min && e <= state.zoomXDomain.max;
-    }) : state.series;
-    const domainData = visibleSeries.length > 0 ? visibleSeries : state.series;
-    const domain = state.label === "Wind Speed" ? computeDomain(domainData, ["avgWind","maxWind"]) :
-                   state.label === "Temperature" ? computeDomain(domainData, ["avgTempC"]) :
-                   state.label === "Humidity" ? computeDomain(domainData, ["avgHumRH"]) :
-                   state.label === "Pressure (MSLP)" ? computeDomain(domainData, ["avgPressHpa"]) :
-                   state.label === "Air Quality (PM)" ? computeDomain(domainData, ["avgPM1","avgPM25","avgPM10"]) :
-                   computeDomain(domainData, ["avgPressHpa"]);
-    const spanY = domain.max - domain.min;
-    if (spanY > 0 && isFinite(spanY)) {
-      const yRange = dims.height - dims.padTop - dims.padBottom;
-      const normY = (best.vAvg - domain.min) / spanY;
-      yPx = dims.height - dims.padBottom - normY * yRange;
-      if (key === "wind" && best.vMax !== null && best.vMax !== undefined && isFinite(best.vMax)) {
-        const normYMax = (best.vMax - domain.min) / spanY;
-        const yPxMax = dims.height - dims.padBottom - normYMax * yRange;
-        setHoverDot("wind_max", xPx, yPxMax);
-      } else if (key === "pm") {
-        // Position dots for all three PM series
-        const pm25 = best.item.avgPM25;
-        const pm10 = best.item.avgPM10;
-        const pm1 = best.item.avgPM1;
-        if (isFinite(pm25)) {
-          const normYPM25 = (pm25 - domain.min) / spanY;
-          const yPxPM25 = dims.height - dims.padBottom - normYPM25 * yRange;
-          setHoverDot("pm_avg", xPx, yPxPM25);
+            // Skip hidden series
+            if (series && series.show === false) continue;
+
+            const row = document.createElement('div');
+
+            // Color dot
+            const dot = document.createElement('span');
+            dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${info.color};border:1px solid #fff;margin-right:4px;vertical-align:middle;`;
+            row.appendChild(dot);
+
+            // Label and value
+            const valueText = val != null && isFinite(val) ? val.toFixed(1) : '--';
+            row.appendChild(document.createTextNode(`${info.label}: ${valueText} ${unit}`));
+
+            tooltip.appendChild(row);
+          }
+
+          // Position tooltip near cursor
+          const bbox = u.over.getBoundingClientRect();
+          let posX = bbox.left + left + 15;
+          let posY = bbox.top + top + 15;
+
+          tooltip.style.display = 'block';
+          tooltip.style.left = posX + 'px';
+          tooltip.style.top = posY + 'px';
+
+          // Adjust if going off right edge
+          const tooltipRect = tooltip.getBoundingClientRect();
+          if (tooltipRect.right > window.innerWidth - 5) {
+            tooltip.style.left = (bbox.left + left - tooltipRect.width - 15) + 'px';
+          }
+          // Adjust if going off bottom
+          if (tooltipRect.bottom > window.innerHeight - 5) {
+            tooltip.style.top = (bbox.top + top - tooltipRect.height - 15) + 'px';
+          }
         }
-        if (isFinite(pm10)) {
-          const normYPM10 = (pm10 - domain.min) / spanY;
-          const yPxPM10 = dims.height - dims.padBottom - normYPM10 * yRange;
-          setHoverDot("pm_pm10", xPx, yPxPM10);
+      ],
+      setSelect: [
+        () => {
+          hideGlobalTooltip();
         }
-        if (isFinite(pm1)) {
-          const normYPM1 = (pm1 - domain.min) / spanY;
-          const yPxPM1 = dims.height - dims.padBottom - normYPM1 * yRange;
-          setHoverDot("pm_pm1", xPx, yPxPM1);
+      ],
+      ready: [
+        (u) => {
+          // Hide tooltip when cursor leaves the plot area
+          u.over.addEventListener('mouseleave', hideGlobalTooltip);
+          u.over.addEventListener('touchend', hideGlobalTooltip);
+        }
+      ]
+    }
+  };
+}
+
+// Track which plot is currently hovered (for showing cursor points only on hovered plot)
+let hoveredPlotKey = null;
+
+// Sync zoom across all plots
+let syncKey = null;
+
+function getSyncKey() {
+  if (!syncKey) {
+    syncKey = {};
+  }
+  return syncKey;
+}
+
+// Create uPlot options for a plot
+function createPlotOptions(plotConfig, width) {
+  const colors = getThemeColors();
+  const seriesConfig = [];
+  const seriesInfo = []; // For tooltip: {label, color}
+
+  // Add x-axis series (required by uPlot)
+  seriesConfig.push({});
+
+  // Add data series
+  for (const s of plotConfig.series) {
+    const color = resolveColor(s.color);
+    seriesInfo.push({ label: s.label, color: color });
+    seriesConfig.push({
+      label: s.label,
+      stroke: color,
+      width: 2,
+      points: { show: false },
+    });
+  }
+
+  // Build array of colors for cursor points (index 0 = null for x-axis series)
+  const ptColors = [null, ...seriesInfo.map(s => s.color)];
+  const thisPlotKey = plotConfig.id;
+
+  const opts = {
+    width: width,
+    height: 160,
+    cursor: {
+      x: true,
+      y: false,
+      points: {
+        size: 8,
+        width: 2,
+        show: (u, seriesIdx) => hoveredPlotKey === thisPlotKey,
+      },
+      drag: {
+        x: true,
+        y: false,
+        setScale: false,
+      },
+      sync: {
+        key: getSyncKey(),
+      },
+    },
+    select: {
+      show: true,
+    },
+    legend: {
+      show: false,
+    },
+    scales: {
+      x: {
+        time: false, // We're using epoch seconds
+      },
+      y: {
+        auto: true,
+        range: (u, min, max) => {
+          // Add some padding
+          const span = max - min;
+          const pad = span * 0.1 || 1;
+          return [min - pad, max + pad];
         }
       }
+    },
+    axes: [
+      {
+        stroke: colors.axes,
+        grid: { stroke: colors.grid, width: 1 },
+        ticks: { stroke: colors.axes, width: 1 },
+        values: formatAxisTime,
+        font: '10px system-ui',
+        labelFont: '10px system-ui',
+      },
+      {
+        stroke: colors.axes,
+        grid: { stroke: colors.grid, width: 1 },
+        ticks: { stroke: colors.axes, width: 1 },
+        font: '10px system-ui',
+        labelFont: '10px system-ui',
+        size: 50,
+        values: (u, splits) => splits.map(v => v != null ? v.toFixed(plotConfig.id === 'press' ? 0 : 1) : ''),
+      }
+    ],
+    series: seriesConfig,
+    plugins: [
+      midnightLinesPlugin(),
+      tooltipPlugin(plotConfig.unit, seriesInfo),
+    ],
+    hooks: {
+      setSelect: [
+        (u) => {
+          const { left, width } = u.select;
+          if (width > 10) {
+            const xMin = u.posToVal(left, 'x');
+            const xMax = u.posToVal(left + width, 'x');
+
+            // Apply zoom to all plots
+            applyZoomToAllPlots(xMin, xMax);
+
+            // Mark as manual zoom
+            hasManualZoom = true;
+            setResetButtonVisible(true);
+          }
+
+          // Clear selection
+          u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+        }
+      ],
+      ready: [
+        (u) => {
+          // Handle double-click to reset zoom
+          u.over.addEventListener('dblclick', () => {
+            resetZoom(plotConfig.id);
+          });
+
+          // Track hovered plot for showing cursor points only on hovered plot
+          u.over.addEventListener('mouseenter', () => {
+            hoveredPlotKey = plotConfig.id;
+          });
+
+          u.over.addEventListener('mouseleave', () => {
+            hoveredPlotKey = null;
+            hideGlobalTooltip();
+          });
+        }
+      ]
     }
-  }
-  setHoverLine(key, xPx);
-  if (key === "wind") {
-    setHoverDot("wind_avg", xPx, yPx);
-  } else if (key !== "pm") {
-    setHoverDot(key, xPx, yPx);
-  }
-}
-
-function hideTooltip(){
-  tooltipEl.style.display = "none";
-  clearHoverLines();
-  clearHoverDots();
-}
-
-function plotMouseDown(key, evt){
-  if (evt.button !== 0) return;
-  const now = Date.now();
-  const timeSinceLastClick = now - dragState.lastClickTime;
-  dragState.lastClickTime = now;
-
-  // Double-click detected - reset zoom
-  if (timeSinceLastClick < 300) {
-    resetZoom(key);
-    return;
-  }
-
-  const rect = evt.currentTarget.getBoundingClientRect();
-  const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
-  dragState.active = true;
-  dragState.plotKey = key;
-  dragState.startX = relX;
-  dragState.currentX = relX;
-}
-
-function plotMouseMove(key, evt){
-  const rect = evt.currentTarget.getBoundingClientRect();
-  const relX = (evt.clientX - rect.left) * (chartDims.width / rect.width);
-
-  if (dragState.active && dragState.plotKey === key) {
-    dragState.currentX = relX;
-    updateSelectionRect(key);
-    hideTooltip();
-    evt.preventDefault();
-  } else {
-    hoverPlot(key, evt);
-  }
-}
-
-function plotMouseLeave(key){
-  if (dragState.active && dragState.plotKey === key) {
-    dragState.active = false;
-    hideSelectionRect(key);
-  }
-  hideTooltip();
-}
-
-function plotMouseUp(key, evt){
-  if (!dragState.active || dragState.plotKey !== key) return;
-  dragState.active = false;
-
-  const dims = chartDims;
-  const xRange = dims.width - dims.padLeft - dims.padRight;
-  const startX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.startX));
-  const endX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.currentX));
-
-  const minX = Math.min(startX, endX);
-  const maxX = Math.max(startX, endX);
-  const dragWidth = maxX - minX;
-
-  if (dragWidth < 20) {
-    hideSelectionRect(key);
-    return;
-  }
-
-  const state = plotState[key];
-  if (!state || !state.xDomain) {
-    hideSelectionRect(key);
-    return;
-  }
-
-  if (!state.originalXDomain) {
-    state.originalXDomain = { ...state.xDomain };
-  }
-
-  let normStart = (minX - dims.padLeft) / xRange;
-  let normEnd = (maxX - dims.padLeft) / xRange;
-
-  // Clamp to 0-1 range to handle edge cases
-  normStart = Math.max(0, Math.min(1, normStart));
-  normEnd = Math.max(0, Math.min(1, normEnd));
-
-  const currentDomain = state.zoomXDomain || state.xDomain;
-  const span = currentDomain.max - currentDomain.min;
-
-  const newZoomDomain = {
-    min: currentDomain.min + normStart * span,
-    max: currentDomain.min + normEnd * span
   };
 
-  PLOT_KEYS.forEach(plotKey => {
-    const plotSt = plotState[plotKey];
-    if (plotSt) {
-      if (!plotSt.originalXDomain && plotSt.xDomain) {
-        plotSt.originalXDomain = { ...plotSt.xDomain };
-      }
-      plotSt.zoomXDomain = { ...newZoomDomain };
-    }
-  });
-
-  hideSelectionRect(key);
-  PLOT_KEYS.forEach(reRenderPlot);
-  // Mark as manual zoom and show reset buttons
-  hasManualZoom = true;
-  setResetButtonVisible(true);
+  return opts;
 }
 
-// Touch event handlers for mobile support
-function plotTouchStart(key, evt) {
-  evt.preventDefault(); // Prevent scrolling while touching plot
-  if (evt.touches.length === 0) return;
+// Apply zoom to all plots
+function applyZoomToAllPlots(xMin, xMax) {
+  for (const key of PLOT_KEYS) {
+    plotState[key].zoomXDomain = { min: xMin, max: xMax };
+    if (uPlotInstances[key]) {
+      uPlotInstances[key].setScale('x', { min: xMin, max: xMax });
+    }
+  }
+}
 
-  const touch = evt.touches[0];
-  const now = Date.now();
-  const timeSinceLastTouch = now - dragState.lastClickTime;
-  dragState.lastClickTime = now;
+// Convert raw data to uPlot format
+function dataToUPlot(data, fields, conversionFactor = 1) {
+  if (!data || !data.length) return null;
 
-  // Double-tap detected - reset zoom
-  if (timeSinceLastTouch < 300) {
-    resetZoom(key);
+  const downsampled = downsampleData(data, MAX_PLOT_POINTS);
+
+  // timestamps
+  const timestamps = downsampled.map(d => d.startEpoch);
+
+  // series data
+  const series = fields.map(field => {
+    return downsampled.map(d => {
+      const val = d[field];
+      if (val === null || val === undefined || !isFinite(val)) return null;
+      return Number(val) * conversionFactor;
+    });
+  });
+
+  return [timestamps, ...series];
+}
+
+// Render a plot using uPlot
+function renderPlot(key, rawData) {
+  const plotConfig = CONFIG.plots.find(p => p.id === key);
+  if (!plotConfig) return;
+
+  const container = document.getElementById(`plot_${key}`);
+  if (!container) return;
+
+  // Get fields and conversion factor
+  const fields = plotConfig.series.map(s => s.field);
+  const conversionFactor = plotConfig.conversionFactor || 1;
+
+  // Filter valid data
+  const filtered = filterSeries(rawData, v => {
+    return fields.some(f => {
+      const val = v ? v[f] : null;
+      return val !== null && val !== undefined && isFinite(val);
+    });
+  });
+
+  if (!filtered.length) {
+    // Clear the plot
+    if (uPlotInstances[key]) {
+      uPlotInstances[key].destroy();
+      delete uPlotInstances[key];
+    }
+    container.innerHTML = '<div class="muted" style="padding:20px;text-align:center;">No data available</div>';
+    plotState[key].data = null;
+    plotState[key].xDomain = null;
     return;
   }
 
-  const rect = evt.currentTarget.getBoundingClientRect();
-  const relX = (touch.clientX - rect.left) * (chartDims.width / rect.width);
-  dragState.active = true;
-  dragState.plotKey = key;
-  dragState.startX = relX;
-  dragState.currentX = relX;
-  showSelectionRect(key);
-}
+  // Convert to uPlot format
+  const uData = dataToUPlot(filtered, fields, conversionFactor);
+  if (!uData) return;
 
-function plotTouchMove(key, evt) {
-  evt.preventDefault(); // Prevent scrolling
-  if (evt.touches.length === 0) return;
+  // Calculate x domain
+  const timestamps = uData[0];
+  const xMin = Math.min(...timestamps.filter(t => t != null));
+  const xMax = Math.max(...timestamps.filter(t => t != null));
 
-  const touch = evt.touches[0];
-  const rect = evt.currentTarget.getBoundingClientRect();
-  const relX = (touch.clientX - rect.left) * (chartDims.width / rect.width);
+  plotState[key].data = filtered;
+  plotState[key].xDomain = { min: xMin, max: xMax };
 
-  if (dragState.active && dragState.plotKey === key) {
-    dragState.currentX = relX;
-    updateSelectionRect(key);
-    hideTooltip();
+  // Determine display domain (respect zoom)
+  const displayDomain = plotState[key].zoomXDomain || plotState[key].xDomain;
+
+  // Get container width
+  const containerWidth = container.clientWidth || 400;
+
+  // Create or update uPlot instance
+  if (uPlotInstances[key]) {
+    // Update existing instance
+    uPlotInstances[key].setData(uData);
+    uPlotInstances[key].setSize({ width: containerWidth, height: 160 });
+    if (displayDomain) {
+      uPlotInstances[key].setScale('x', { min: displayDomain.min, max: displayDomain.max });
+    }
   } else {
-    // Create a synthetic mouse event for hovering
-    const syntheticEvent = {
-      currentTarget: evt.currentTarget,
-      clientX: touch.clientX,
-      clientY: touch.clientY
-    };
-    hoverPlot(key, syntheticEvent);
+    // Create new instance
+    container.innerHTML = '';
+    const opts = createPlotOptions(plotConfig, containerWidth);
+    const u = new uPlot(opts, uData, container);
+    uPlotInstances[key] = u;
+
+    if (displayDomain) {
+      u.setScale('x', { min: displayDomain.min, max: displayDomain.max });
+    }
   }
 }
 
-function plotTouchEnd(key, evt) {
-  evt.preventDefault();
-  if (!dragState.active || dragState.plotKey !== key) {
-    hideTooltip();
-    return;
-  }
-
-  // Use the same logic as plotMouseUp
-  dragState.active = false;
-
-  const dims = chartDims;
-  const xRange = dims.width - dims.padLeft - dims.padRight;
-  const startX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.startX));
-  const endX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.currentX));
-
-  const minX = Math.min(startX, endX);
-  const maxX = Math.max(startX, endX);
-  const dragWidth = maxX - minX;
-
-  if (dragWidth < 20) {
-    hideSelectionRect(key);
-    hideTooltip();
-    return;
-  }
-
+// Re-render a single plot (for zoom changes)
+function reRenderPlot(key) {
   const state = plotState[key];
-  if (!state || !state.xDomain) {
-    hideSelectionRect(key);
-    hideTooltip();
-    return;
-  }
+  if (!state || !state.data) return;
+  renderPlot(key, state.data);
+}
 
-  if (!state.originalXDomain) {
-    state.originalXDomain = { ...state.xDomain };
-  }
+// Resize observer for responsive charts
+let resizeTimeout = null;
+function setupResizeObserver() {
+  const container = document.getElementById('plots_container');
+  if (!container) return;
 
-  let normStart = (minX - dims.padLeft) / xRange;
-  let normEnd = (maxX - dims.padLeft) / xRange;
-
-  normStart = Math.max(0, Math.min(1, normStart));
-  normEnd = Math.max(0, Math.min(1, normEnd));
-
-  const currentDomain = state.zoomXDomain || state.xDomain;
-  const span = currentDomain.max - currentDomain.min;
-
-  const newZoomDomain = {
-    min: currentDomain.min + normStart * span,
-    max: currentDomain.min + normEnd * span
-  };
-
-  PLOT_KEYS.forEach(plotKey => {
-    const plotSt = plotState[plotKey];
-    if (plotSt) {
-      if (!plotSt.originalXDomain && plotSt.xDomain) {
-        plotSt.originalXDomain = { ...plotSt.xDomain };
+  const observer = new ResizeObserver(() => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      for (const key of PLOT_KEYS) {
+        const plotContainer = document.getElementById(`plot_${key}`);
+        if (plotContainer && uPlotInstances[key]) {
+          const width = plotContainer.clientWidth || 400;
+          uPlotInstances[key].setSize({ width, height: 160 });
+        }
       }
-      plotSt.zoomXDomain = { ...newZoomDomain };
-    }
+    }, 100);
   });
 
-  hideSelectionRect(key);
-  hideTooltip();
-  PLOT_KEYS.forEach(reRenderPlot);
-  // Mark as manual zoom and show reset buttons
-  hasManualZoom = true;
-  setResetButtonVisible(true);
+  observer.observe(container);
 }
 
 // Current zoom level in hours (default 24)
@@ -853,14 +803,14 @@ function setResetButtonVisible(visible) {
   if (resetBtn) resetBtn.style.visibility = visible ? "visible" : "hidden";
 }
 
-function resetZoom(key){
+function resetZoom(key) {
   // Reset to the current saved zoom level
   hasManualZoom = false;
   setResetButtonVisible(false);
   setZoomLevel(currentZoomLevel, false);
 }
 
-function setZoomLevel(hours, saveToStorage = true){
+function setZoomLevel(hours, saveToStorage = true) {
   // Save the selected zoom level
   if (saveToStorage) {
     currentZoomLevel = hours;
@@ -889,9 +839,6 @@ function setZoomLevel(hours, saveToStorage = true){
   PLOT_KEYS.forEach(plotKey => {
     const state = plotState[plotKey];
     if (state && state.xDomain) {
-      if (!state.originalXDomain) {
-        state.originalXDomain = { ...state.xDomain };
-      }
       // Clamp to available data range
       const clampedMin = Math.max(minEpoch, state.xDomain.min);
       const clampedMax = Math.min(nowEpoch, state.xDomain.max);
@@ -902,338 +849,45 @@ function setZoomLevel(hours, saveToStorage = true){
       } else {
         state.zoomXDomain = null;
       }
+
+      // Update uPlot instance
+      if (uPlotInstances[plotKey]) {
+        const domain = state.zoomXDomain || state.xDomain;
+        uPlotInstances[plotKey].setScale('x', { min: domain.min, max: domain.max });
+      }
     }
   });
-
-  PLOT_KEYS.forEach(reRenderPlot);
 }
 
-function updateSelectionRect(key){
-  const rect = document.getElementById(`select_rect_${key}`);
-  if (!rect) return;
-
-  const dims = chartDims;
-  const startX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.startX));
-  const endX = Math.max(dims.padLeft, Math.min(dims.width - dims.padRight, dragState.currentX));
-  const minX = Math.min(startX, endX);
-  const maxX = Math.max(startX, endX);
-
-  rect.setAttribute("x", minX);
-  rect.setAttribute("y", dims.padTop);
-  rect.setAttribute("width", maxX - minX);
-  rect.setAttribute("height", dims.height - dims.padTop - dims.padBottom);
-  rect.setAttribute("opacity", "1");
-}
-
-function hideSelectionRect(key){
-  const rect = document.getElementById(`select_rect_${key}`);
-  if (rect) rect.setAttribute("opacity", "0");
-}
-
-function reRenderPlot(key){
-  const state = plotState[key];
-  if (!state || !state.series) return;
-
-  if (key === "wind") {
-    renderWind(state.series);
-  } else if (key === "temp") {
-    renderSingleSeries(state.series, "avgTempC", "line_temp", "#d9534f", "axis_temp", "axis_x_temp");
-  } else if (key === "hum") {
-    renderSingleSeries(state.series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");
-  } else if (key === "press") {
-    renderSingleSeries(state.series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
-  } else if (key === "pm") {
-    renderPM(state.series);
-  }
-}
-
-function renderAxis(axisId, domain, dims = chartDims){
-  const axis = document.getElementById(axisId);
-  if (!axis) return;
-
-  const svg = axis.closest('svg');
-  const scaleX = svg ? (svg.getBoundingClientRect().width / dims.width) : 1;
-  const textScale = scaleX > 0 ? (1 / scaleX) : 1;
-
-  // Use integer formatting for pressure axis
-  const decimals = (axisId === "axis_press") ? 0 : 1;
-
-  const span = domain.max - domain.min;
-  const ticks = 4;
-  const axisX = dims.padLeft - 12;
-  const usableH = dims.height - dims.padTop - dims.padBottom;
-  let html = `<line x1="${axisX}" y1="${dims.padTop}" x2="${axisX}" y2="${dims.height - dims.padBottom}" stroke-width="1"/>`;
-  for (let i=0; i<=ticks; i++){
-    const frac = i / ticks;
-    const value = domain.max - frac * span;
-    const y = dims.padTop + frac * usableH;
-    html += `<line x1="${axisX}" y1="${y.toFixed(1)}" x2="${(axisX+6)}" y2="${y.toFixed(1)}" stroke-width="1"/>`;
-    html += `<text x="${axisX - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" transform="scale(${textScale.toFixed(3)}, 1)" transform-origin="${axisX - 4} ${(y + 3).toFixed(1)}">${value.toFixed(decimals)}</text>`;
-  }
-  axis.innerHTML = html;
-}
-
-function renderXAxis(axisId, xDomain, dims = chartDims){
-  const axis = document.getElementById(axisId);
-  if (!axis) return;
-  if (!xDomain){
-    axis.innerHTML = "";
-    return;
-  }
-
-  const svg = axis.closest('svg');
-  const scaleX = svg ? (svg.getBoundingClientRect().width / dims.width) : 1;
-  const textScale = scaleX > 0 ? (1 / scaleX) : 1;
-
-  const xRange = dims.width - dims.padLeft - dims.padRight;
-  const baseY = dims.height - dims.padBottom + 4;
-  const span = xDomain.max - xDomain.min;
-  const targetTicks = 10;
-  const tickSeconds = Math.max(1, Math.round(span / targetTicks));
-  const firstTick = Math.ceil(xDomain.min / tickSeconds) * tickSeconds;
-  let html = `<line x1="${dims.padLeft}" y1="${baseY}" x2="${dims.width - dims.padRight}" y2="${baseY}" stroke-width="1"/>`;
-  for (let t = firstTick; t <= xDomain.max + 1; t += tickSeconds){
-    const norm = (t - xDomain.min) / span;
-    const x = dims.padLeft + norm * xRange;
-    const d = new Date(t * 1000);
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
-    html += `<line x1="${x.toFixed(1)}" y1="${baseY}" x2="${x.toFixed(1)}" y2="${(baseY+4)}" stroke-width="1"/>`;
-    html += `<text x="${x.toFixed(1)}" y="${(baseY+14)}" text-anchor="middle" transform="scale(${textScale.toFixed(3)}, 1)" transform-origin="${x.toFixed(1)} ${(baseY+14)}">${hh}:${mm}</text>`;
-  }
-  axis.innerHTML = html;
-}
-
-function renderMidnightLines(midnightId, xDomain, dims = chartDims){
-  const container = document.getElementById(midnightId);
-  if (!container) return;
-  if (!xDomain){
-    container.innerHTML = "";
-    return;
-  }
-
-  const xRange = dims.width - dims.padLeft - dims.padRight;
-  const span = xDomain.max - xDomain.min;
-  let html = '';
-
-  // Find first midnight within or after xDomain.min
-  const startDate = new Date(xDomain.min * 1000);
-  const firstMidnight = new Date(startDate);
-  firstMidnight.setHours(0, 0, 0, 0);
-  if (firstMidnight <= startDate) {
-    firstMidnight.setDate(firstMidnight.getDate() + 1);
-  }
-
-  // Draw vertical lines at each midnight
-  let currentMidnight = new Date(firstMidnight);
-  while (currentMidnight / 1000 <= xDomain.max) {
-    const midnightSeconds = currentMidnight / 1000;
-    const norm = (midnightSeconds - xDomain.min) / span;
-    const x = dims.padLeft + norm * xRange;
-
-    html += `<line x1="${x.toFixed(1)}" y1="${dims.padTop}" x2="${x.toFixed(1)}" y2="${dims.height - dims.padBottom}" stroke="var(--midnight-line)" stroke-width="1.5" stroke-dasharray="4 2" opacity="0.8"/>`;
-
-    currentMidnight.setDate(currentMidnight.getDate() + 1);
-  }
-
-  container.innerHTML = html;
-}
-
-function renderPolyline(values, field, elemId, domain, dims = chartDims, color, xDomain){
-  const el = document.getElementById(elemId);
-  if (!el) return;
-
-  const downsampled = downsampleData(values, MAX_PLOT_POINTS);
-
-  const xRange = dims.width - dims.padLeft - dims.padRight;
-  const yRange = dims.height - dims.padTop - dims.padBottom;
-  const span = domain.max - domain.min;
-  const xSpan = xDomain ? (xDomain.max - xDomain.min) : 0;
-  const n = downsampled.length;
-
-  let pts = [];
-  for (let i=0;i<n;i++){
-    const raw = downsampled[i] ? downsampled[i][field] : null;
-    const val = (raw === null || raw === undefined || !isFinite(raw)) ? null : Number(raw);
-    if (val === null) continue;
-    let x;
-    const epoch = downsampled[i] ? Number(downsampled[i].startEpoch) : NaN;
-    if (xDomain && isFinite(epoch) && epoch > 0 && xSpan > 0){
-      const xNorm = (epoch - xDomain.min) / xSpan;
-      x = dims.padLeft + xNorm * xRange;
-    } else {
-      x = n > 1 ? dims.padLeft + (i/(n-1))*xRange : dims.padLeft;
+// Update plots for theme change
+function updatePlotsTheme() {
+  // Destroy and recreate all plots to pick up new colors
+  for (const key of PLOT_KEYS) {
+    if (plotState[key].data) {
+      if (uPlotInstances[key]) {
+        uPlotInstances[key].destroy();
+        delete uPlotInstances[key];
+      }
+      renderPlot(key, plotState[key].data);
     }
-    const yNorm = (val - domain.min)/span;
-    const y = dims.height - dims.padBottom - yNorm*yRange;
-    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-  }
-
-  if (color) el.setAttribute("stroke", color);
-  el.setAttribute("points", pts.join(" "));
-}
-
-function renderSingleSeries(values, field, elemId, color, axisId, xAxisId){
-  const filtered = filterSeries(values, v => {
-    const val = v ? v[field] : null;
-    return val !== null && val !== undefined && isFinite(val);
-  });
-  if (!filtered.length){
-    const el = document.getElementById(elemId);
-    if (el) el.setAttribute("points", "");
-    clearAxis(axisId);
-    if (xAxisId) clearAxis(xAxisId);
-    const key = elemId === "line_temp" ? "temp" : elemId === "line_hum" ? "hum" : "press";
-    if (plotState[key]) {
-      plotState[key].series = null;
-      plotState[key].xDomain = null;
-    }
-    return;
-  }
-  const xDomain = computeTimeDomain(filtered);
-  const key = elemId === "line_temp" ? "temp" : elemId === "line_hum" ? "hum" : "press";
-
-  const displayDomain = (plotState[key] && plotState[key].zoomXDomain) ? plotState[key].zoomXDomain : xDomain;
-
-  const visibleData = displayDomain ? filtered.filter(v => {
-    const e = v ? Number(v.startEpoch) : NaN;
-    return isFinite(e) && e >= displayDomain.min && e <= displayDomain.max;
-  }) : filtered;
-
-  const domain = computeDomain(visibleData.length > 0 ? visibleData : filtered, [field]);
-
-  renderAxis(axisId, domain);
-  if (xAxisId) {
-    renderXAxis(xAxisId, displayDomain);
-    const midnightId = xAxisId.replace('axis_x_', 'midnight_');
-    renderMidnightLines(midnightId, displayDomain);
-  }
-  renderPolyline(visibleData.length > 0 ? visibleData : filtered, field, elemId, domain, chartDims, color, displayDomain);
-  if (plotState[key]) {
-    plotState[key].series = filtered;
-    plotState[key].xDomain = xDomain;
   }
 }
 
-function renderWind(values){
-  const filtered = filterSeries(values, v => {
-    const a = v ? v.avgWind : null;
-    const m = v ? v.maxWind : null;
-    return (a !== null && a !== undefined && isFinite(a)) || (m !== null && m !== undefined && isFinite(m));
-  });
-  if (!filtered.length){
-    ["line_wind","line_wind_max"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.setAttribute("points", "");
-    });
-    clearAxis("axis_wind");
-    clearAxis("axis_x_wind");
-    plotState.wind.series = null;
-    plotState.wind.xDomain = null;
-    return;
+// Hook into theme toggle
+const originalToggleTheme = window.toggleTheme;
+window.toggleTheme = function() {
+  if (typeof originalToggleTheme === 'function') {
+    originalToggleTheme();
   }
-  const valuesKm = filtered.map(v => {
-    if (!v) return v;
-    return Object.assign({}, v, {
-      avgWind: toKmh(v.avgWind),
-      maxWind: toKmh(v.maxWind)
-    });
-  });
-  const xDomain = computeTimeDomain(valuesKm);
+  // Update plots after theme change
+  setTimeout(updatePlotsTheme, 50);
+};
 
-  const displayDomain = plotState.wind.zoomXDomain ? plotState.wind.zoomXDomain : xDomain;
-
-  const visibleData = displayDomain ? valuesKm.filter(v => {
-    const e = v ? Number(v.startEpoch) : NaN;
-    return isFinite(e) && e >= displayDomain.min && e <= displayDomain.max;
-  }) : valuesKm;
-
-  const domain = computeDomain(visibleData.length > 0 ? visibleData : valuesKm, ["avgWind", "maxWind"]);
-  const hasValid = Number.isFinite(domain.min) && Number.isFinite(domain.max);
-  if (!hasValid){
-    ["line_wind","line_wind_max"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.setAttribute("points", "");
-    });
-    clearAxis("axis_wind");
-    clearAxis("axis_x_wind");
-    plotState.wind.series = null;
-    plotState.wind.xDomain = null;
-    return;
-  }
-
-  renderAxis("axis_wind", domain);
-  renderXAxis("axis_x_wind", displayDomain);
-  renderMidnightLines("midnight_wind", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "avgWind", "line_wind", domain, chartDims, "var(--wind-line-color)", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : valuesKm, "maxWind", "line_wind_max", domain, chartDims, "#f0ad4e", displayDomain);
-  plotState.wind.series = filtered;  // Store original m/s data, not converted
-  plotState.wind.xDomain = xDomain;
-}
-
-function renderPM(values){
-  const filtered = filterSeries(values, v => {
-    const pm1 = v ? v.avgPM1 : null;
-    const pm25 = v ? v.avgPM25 : null;
-    const pm10 = v ? v.avgPM10 : null;
-    return (pm1 !== null && pm1 !== undefined && isFinite(pm1)) ||
-           (pm25 !== null && pm25 !== undefined && isFinite(pm25)) ||
-           (pm10 !== null && pm10 !== undefined && isFinite(pm10));
-  });
-  if (!filtered.length){
-    ["line_pm","line_pm_pm10","line_pm_pm1"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.setAttribute("points", "");
-    });
-    clearAxis("axis_pm");
-    clearAxis("axis_x_pm");
-    if (plotState.pm) {
-      plotState.pm.series = null;
-      plotState.pm.xDomain = null;
-    }
-    return;
-  }
-
-  const xDomain = computeTimeDomain(filtered);
-  const displayDomain = (plotState.pm && plotState.pm.zoomXDomain) ? plotState.pm.zoomXDomain : xDomain;
-
-  const visibleData = displayDomain ? filtered.filter(v => {
-    const e = v ? Number(v.startEpoch) : NaN;
-    return isFinite(e) && e >= displayDomain.min && e <= displayDomain.max;
-  }) : filtered;
-
-  const domain = computeDomain(visibleData.length > 0 ? visibleData : filtered, ["avgPM1", "avgPM25", "avgPM10"]);
-  const hasValid = Number.isFinite(domain.min) && Number.isFinite(domain.max);
-  if (!hasValid){
-    ["line_pm","line_pm_pm10","line_pm_pm1"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.setAttribute("points", "");
-    });
-    clearAxis("axis_pm");
-    clearAxis("axis_x_pm");
-    if (plotState.pm) {
-      plotState.pm.series = null;
-      plotState.pm.xDomain = null;
-    }
-    return;
-  }
-
-  renderAxis("axis_pm", domain);
-  renderXAxis("axis_x_pm", displayDomain);
-  renderMidnightLines("midnight_pm", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM25", "line_pm", domain, chartDims, "#ff6600", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM10", "line_pm_pm10", domain, chartDims, "#996633", displayDomain);
-  renderPolyline(visibleData.length > 0 ? visibleData : filtered, "avgPM1", "line_pm_pm1", domain, chartDims, "#9966cc", displayDomain);
-  if (plotState.pm) {
-    plotState.pm.series = filtered;
-    plotState.pm.xDomain = xDomain;
-  }
-}
-
-function renderDays(days){
+// Table rendering
+function renderDays(days) {
   const tb = document.getElementById("days");
   tb.innerHTML = "";
-  for (const d of days){
+  for (const d of days) {
     const tr = document.createElement("tr");
 
     for (const col of CONFIG.tableColumns) {
@@ -1264,13 +918,13 @@ function renderDays(days){
   }
 }
 
-function numOrDash(v, digits=1){
+function numOrDash(v, digits=1) {
   if (v === null || v === undefined) return "--";
   if (!isFinite(v)) return "--";
   return Number(v).toFixed(digits);
 }
 
-function formatUptime(sec){
+function formatUptime(sec) {
   if (!isFinite(sec) || sec < 0) return "--";
   if (sec < 60) return `${sec}s`;
   const totalMin = Math.floor(sec / 60);
@@ -1283,20 +937,15 @@ function formatUptime(sec){
   const days = Math.floor(totalHours / 24);
   return `${days}d`;
 }
-function toKmh(v){
-  if (v === null || v === undefined) return null;
-  if (!isFinite(v)) return null;
-  return Number(v) * 3.6;
-}
 
-function bytesPretty(n){
+function bytesPretty(n) {
   if (!isFinite(n)) return "";
   if (n < 1024) return `${n} B`;
   if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
   return `${(n/(1024*1024)).toFixed(1)} MB`;
 }
 
-function wifiQuality(rssi){
+function wifiQuality(rssi) {
   if (rssi === null || rssi === undefined || !isFinite(rssi)) return "--";
   if (rssi >= -50) return "Excellent";
   if (rssi >= -60) return "Good";
@@ -1308,7 +957,7 @@ const filesState = {
   data: { offset: 0, total: 0, files: [] }
 };
 
-async function loadFiles(dir){
+async function loadFiles(dir) {
   const target = document.getElementById('files_data');
   const navEl = document.getElementById('files_data_nav');
   const infoEl = document.getElementById('files_data_info');
@@ -1318,9 +967,9 @@ async function loadFiles(dir){
   if (!target) return;
   target.textContent = "Loading...";
 
-  try{
+  try {
     const j = await fetchJSON(`/api/files?dir=${encodeURIComponent(dir)}`);
-    if (!j.ok){
+    if (!j.ok) {
       target.textContent = `Error: ${j.error || 'unknown'}`;
       if (navEl) navEl.style.display = "none";
       return;
@@ -1330,7 +979,7 @@ async function loadFiles(dir){
     filesState[dir].files = files;
     filesState[dir].total = files.length;
 
-    if (!files.length){
+    if (!files.length) {
       target.textContent = "(none)";
       if (navEl) navEl.style.display = "none";
       return;
@@ -1351,7 +1000,7 @@ async function loadFiles(dir){
     const ul = document.createElement('ul');
     ul.style.cssText = 'margin:8px 0; padding-left:18px';
 
-    for (const f of pageFiles){
+    for (const f of pageFiles) {
       const p = f.path;
       const filename = p.substring(p.lastIndexOf('/') + 1);
       const s = bytesPretty(f.size);
@@ -1362,7 +1011,7 @@ async function loadFiles(dir){
       // Create download link
       const link = document.createElement('a');
       link.href = dl;
-      link.textContent = p; // Use textContent to prevent XSS
+      link.textContent = p;
       li.appendChild(link);
 
       // Add file size
@@ -1409,38 +1058,38 @@ async function loadFiles(dir){
       }
     }
 
-  }catch(e){
+  } catch(e) {
     target.textContent = "Error loading list";
     if (navEl) navEl.style.display = "none";
   }
 }
 
-function navigateFiles(dir, delta){
+function navigateFiles(dir, delta) {
   filesState[dir].offset += delta * FILES_PER_PAGE;
   loadFiles(dir);
 }
 
-function goToPage(dir, pageNum){
+function goToPage(dir, pageNum) {
   const page = parseInt(pageNum, 10);
   if (!isFinite(page) || page < 1) return;
   filesState[dir].offset = (page - 1) * FILES_PER_PAGE;
   loadFiles(dir);
 }
 
-function downloadZip(){
+function downloadZip() {
   const n = parseInt(document.getElementById("zipdays").value || "7", 10);
   const days = (isFinite(n) && n > 0) ? n : 7;
   window.location = `/download_zip?days=${encodeURIComponent(days)}`;
 }
 
-async function deleteFile(filename, dir){
+async function deleteFile(filename, dir) {
   if (!confirm("Delete this file from SD?")) return;
   const pw = prompt("Password required to delete file:");
   if (!(pw && pw.trim().length)) {
     alert("Password required.");
     return;
   }
-  try{
+  try {
     const body = `filename=${encodeURIComponent(filename)}&pw=${encodeURIComponent(pw.trim())}`;
     const res = await fetch("/api/delete", {
       method: "POST",
@@ -1448,64 +1097,64 @@ async function deleteFile(filename, dir){
       body
     });
     const txt = await res.text();
-    if (res.ok){
+    if (res.ok) {
       alert("File deleted.");
       filesState[dir].offset = 0;
       loadFiles(dir);
     } else {
       alert("Delete failed: " + txt);
     }
-  }catch(e){
+  } catch(e) {
     alert("Error deleting file");
   }
 }
 
-async function clearSdData(){
+async function clearSdData() {
   if (!confirm("Clear all CSV data on the SD card? This cannot be undone.")) return;
   const pw = prompt("Password required to clear SD data:");
   if (!(pw && pw.trim().length)) {
     alert("Password required.");
     return;
   }
-  try{
+  try {
     const res = await fetch("/api/clear_data", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `pw=${encodeURIComponent(pw.trim())}`
     });
     const txt = await res.text();
-    if (res.ok){
+    if (res.ok) {
       alert("SD data cleared.");
       filesState.data.offset = 0;
       loadFiles('data');
     } else {
       alert("Failed to clear SD data: " + txt);
     }
-  }catch(e){
+  } catch(e) {
     alert("Error clearing SD data");
   }
 }
 
-async function rebootDevice(){
+async function rebootDevice() {
   const pw = prompt("Password required to reboot device:");
   if (!(pw && pw.trim().length)) {
     alert("Password required.");
     return;
   }
   if (!confirm("Reboot the device now?")) return;
-  try{
+  try {
     const res = await fetch("/api/reboot", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `pw=${encodeURIComponent(pw.trim())}`
     });
-    if (res.ok){
+    if (res.ok) {
       alert("Rebooting...");
     } else {
       const txt = await res.text();
       alert("Reboot failed: " + txt);
     }
-  }catch(e){
+  } catch(e) {
     alert("Error sending reboot request");
   }
 }
@@ -1713,11 +1362,12 @@ async function slowTick() {
       const bucketSeconds = bucketsRes.value.bucket_seconds || "--";
       document.getElementById("bucket_sec").textContent = bucketSeconds;
       debugLog('Rendering plots');
-      renderWind(series);
-      renderSingleSeries(series, "avgTempC", "line_temp", "#d9534f", "axis_temp", "axis_x_temp");
-      renderSingleSeries(series, "avgHumRH", "line_hum", "#0275d8", "axis_hum", "axis_x_hum");
-      renderSingleSeries(series, "avgPressHpa", "line_press", "#5cb85c", "axis_press", "axis_x_press");
-      renderPM(series);
+
+      // Render all plots
+      for (const plotKey of PLOT_KEYS) {
+        renderPlot(plotKey, series);
+      }
+
       debugLog('Plots rendered');
     } else {
       debugLog("Buckets failed", {error: bucketsRes.reason?.message});
@@ -1762,6 +1412,9 @@ function combinedTick() {
 
     await loadConfig();
     debugLog('Starting tick');
+
+    // Set up resize observer for responsive charts
+    setupResizeObserver();
 
     // Load plots and summaries once on init
     await slowTick();

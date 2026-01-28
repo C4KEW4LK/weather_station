@@ -5,7 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Weather Station</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='40' r='18' fill='%23FFB000'/><circle cx='50' cy='40' r='12' fill='%23FFC933'/><path d='M50 10v8M50 62v8M78 40h8M14 40h8M71 19l6-6M23 61l6-6M71 61l6 6M23 19l6 6' stroke='%23FFB000' stroke-width='3' stroke-linecap='round'/><ellipse cx='30' cy='64' rx='16' ry='10' fill='%23E0E0E0'/><ellipse cx='50' cy='60' rx='22' ry='14' fill='%23F0F0F0'/><ellipse cx='70' cy='64' rx='16' ry='10' fill='%23E8E8E8'/></svg>"/>
+  <script src="/uPlot.iife.min.js"></script>
   <style>
+/* uPlot base styles */
+.uplot, .uplot *, .uplot *::before, .uplot *::after { box-sizing: border-box; }
+.uplot { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; line-height: 1.5; width: min-content; }
+.u-title { text-align: center; font-size: 18px; font-weight: bold; }
+.u-wrap { position: relative; user-select: none; }
+.u-over, .u-under { position: absolute; overflow: hidden; }
+.u-under { overflow: hidden; }
+.uplot canvas { display: block; position: relative; width: 100%; height: 100%; }
+.u-axis { position: absolute; }
+.u-select { position: absolute; pointer-events: none; background: rgba(100,150,250,0.3); }
+.u-cursor-x, .u-cursor-y { position: absolute; pointer-events: none; left: 0; top: 0; will-change: transform; }
+.u-cursor-x { height: 100%; border-right: 1px dashed #607D8B; }
+.u-cursor-y { width: 100%; border-bottom: 1px dashed #607D8B; }
+.u-cursor-pt { position: absolute; pointer-events: none; border-radius: 50%; will-change: transform; }
+.u-legend { display: none !important; }
 :root {
   --bg-color: #fff;
   --text-color: #000;
@@ -246,6 +262,26 @@ body.dark-mode .zoom-btn.active {
 .table-alt-bg {
   background-color: var(--table-cell-bg);
 }
+
+/* uPlot container styling */
+.uplot-container {
+  width: 100%;
+  min-height: 160px;
+}
+
+.uplot-container .uplot {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.uplot-container .u-wrap {
+  width: 100% !important;
+}
+
+/* Dark mode styling */
+body.dark-mode .u-axis text { fill: var(--text-color); }
+body.dark-mode .u-cursor-x { border-right-color: #aaa; }
+body.dark-mode .u-select { background: rgba(100,150,250,0.4); }
 
 #theme-toggle {
   padding:8px 12px;

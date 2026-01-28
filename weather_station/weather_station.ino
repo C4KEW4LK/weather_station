@@ -1341,7 +1341,7 @@ void handleRoot() {
   <h1>Weather Station - Setup Required</h1>
   <p>Web interface files not found on SD card.</p>
   <ul>
-    <li><a href="/upload">Upload UI files (index.html, app.js)</a></li>
+    <li><a href="/upload">Upload UI files (index.html, app.js, uPlot.iife.min.js)</a></li>
     <li><a href="/api/now">View current sensor data (JSON)</a></li>
     <li><a href="/api/buckets">View bucket data (JSON)</a></li>
     <li><a href="/api/days">View daily summaries (JSON)</a></li>
@@ -1370,6 +1370,19 @@ void handleRootJs() {
   }
 
   server.send(200, "application/javascript", "console.log('app.js not found on SD card');");
+}
+
+void handleUPlotJs() {
+  if (gSdOk && SD.exists("/web/uPlot.iife.min.js")) {
+    File f = SD.open("/web/uPlot.iife.min.js", FILE_READ);
+    if (f) {
+      server.streamFile(f, "application/javascript");
+      f.close();
+      return;
+    }
+  }
+
+  server.send(200, "application/javascript", "console.log('uPlot.iife.min.js not found on SD card');");
 }
 
 void handleApiClearData() {
@@ -1917,8 +1930,8 @@ void handleApiUiFiles() {
   String out = "{\"ok\":true,\"files\":[";
   bool first = true;
 
-  const char* webFiles[] = {"/web/index.html", "/web/app.js"};
-  for (int i = 0; i < 2; i++) {
+  const char* webFiles[] = {"/web/index.html", "/web/app.js", "/web/uPlot.iife.min.js"};
+  for (int i = 0; i < 3; i++) {
     const char* path = webFiles[i];
     if (SD.exists(path)) {
       File f = SD.open(path, FILE_READ);
@@ -2379,6 +2392,7 @@ void setup() {
   // routes
   server.on("/", handleRoot);
   server.on("/root.js", handleRootJs);
+  server.on("/uPlot.iife.min.js", handleUPlotJs);
   server.on("/api/now", handleApiNow);
   server.on("/api/buckets", handleApiBuckets);
   server.on("/api/buckets_compact", handleApiBucketsCompact);  // Compact format for internal UI
