@@ -213,9 +213,32 @@ code {
 }
 
 .reset-btn {
-  display:none;
+  visibility:hidden;
   padding:2px 6px;
   font-size:11px;
+}
+
+.zoom-btns {
+  display:flex;
+  gap:4px;
+  flex-wrap:wrap;
+}
+
+.zoom-btn {
+  padding:2px 6px;
+  font-size:11px;
+}
+
+.zoom-btn.active {
+  background:#333;
+  color:#fff;
+  border-color:#333;
+}
+
+body.dark-mode .zoom-btn.active {
+  background:#fff;
+  color:#000;
+  border-color:#fff;
 }
 
 .sensor-item { flex:1; min-width:120px; }
@@ -235,26 +258,6 @@ code {
 }
 #theme-toggle:hover {
   transform: scale(1.05);
-}
-
-.time-range-buttons {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.time-range-buttons button {
-  padding: 4px 10px;
-  font-size: 12px;
-  transition: background-color 0.2s, border-color 0.2s;
-}
-.time-range-buttons button:hover:not(:disabled) {
-  background: var(--pill-bg);
-}
-.time-range-buttons button.active {
-  background: var(--pill-bg);
-  border-color: var(--text-color);
-  font-weight: 600;
 }
 
   </style>
@@ -311,14 +314,17 @@ code {
 
   <div class="row" style="margin-top: 14px;">
     <div class="card card-full">
-      <div class="flex-between" style="margin-bottom: 12px;">
-        <div class="muted">Plots</div>
-        <div class="btnrow time-range-buttons" id="time-range-buttons">
-          <button class="small" data-hours="max" onclick="resetToMax()">Max (24hr)</button>
-          <button class="small" data-hours="12" onclick="zoomToTimeRange(12)">12hr</button>
-          <button class="small" data-hours="6" onclick="zoomToTimeRange(6)">6hr</button>
-          <button class="small" data-hours="3" onclick="zoomToTimeRange(3)">3hr</button>
-          <button class="small" data-hours="1" onclick="zoomToTimeRange(1)">1hr</button>
+      <div class="flex-between" style="margin-bottom: 8px;">
+        <div class="muted">Historical Data</div>
+        <div style="text-align:right;">
+          <div class="zoom-btns">
+            <button class="small zoom-btn" data-zoom="24" onclick="setZoomLevel(24)">Max (24hr)</button>
+            <button class="small zoom-btn" data-zoom="12" onclick="setZoomLevel(12)">12hr</button>
+            <button class="small zoom-btn" data-zoom="6" onclick="setZoomLevel(6)">6hr</button>
+            <button class="small zoom-btn" data-zoom="3" onclick="setZoomLevel(3)">3hr</button>
+            <button class="small zoom-btn" data-zoom="1" onclick="setZoomLevel(1)">1hr</button>
+          </div>
+          <button class="small reset-btn" onclick="resetZoom()" id="reset_zoom_btn">Reset</button>
         </div>
       </div>
       <div id="plots_container" class="plots-grid">
